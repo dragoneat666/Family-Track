@@ -1,0 +1,12 @@
+# Example stack. Point the volume at wherever you keep app data.
+services:
+  family-track:
+    image: ghcr.io/dragoneat666/family-track:latest
+    container_name: family-track
+    ports:
+      - "14200:8080"
+    environment:
+      TZ: Etc/UTC # set to your time zone; it decides when "today" starts for one-piece-a-day
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

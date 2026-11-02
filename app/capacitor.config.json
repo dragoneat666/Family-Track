@@ -1,0 +1,11 @@
+{
+  "appId": "com.dragoneat666.familytrack",
+  "appName": "Family Track",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

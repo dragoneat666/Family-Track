@@ -1,0 +1,7 @@
+**/node_modules
+**/dist
+app/android
+app/public/mediapipe
+.git
+.github
+data

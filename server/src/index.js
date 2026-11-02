@@ -1,0 +1,496 @@
+import express from 'express';
+import multer from 'multer';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { db, getSettings, setSettings } from './db.js';
+import { PORT, TMP_DIR, today } from './config.js';
+import {
+  isSetUp, setPin, checkPin, registerDevice, openParentSession,
+  requireDevice, requireParent, httpError
+} from './auth.js';
+import { buildCharacterModel, processRigged, processDance, characterDir, niceName } from './assets.js';
+
+const VERSION = process.env.APP_VERSION || 'dev';
+const app = express();
+app.set('trust proxy', false);
+app.use(express.json({ limit: '1mb' }));
+
+// The Android app runs from its own origin (http://localhost) and calls this
+// server over NetBird, so allow cross-origin requests. Auth is by header token.
+app.use('/api', (req, res, next) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Headers', 'Authorization, X-Parent-Token, Content-Type');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
+fs.mkdirSync(TMP_DIR, { recursive: true });
+const upload = multer({
+  dest: TMP_DIR,
+  limits: { fileSize: 600 * 1024 * 1024, files: 120 },
+  fileFilter: (req, file, cb) => cb(null, /\.glb$/i.test(file.originalname))
+});
+
+// ---------- setup & sign-in ----------
+
+app.get('/api/status', (req, res) => res.json({ setUp: isSetUp(), version: VERSION }));
+
+app.post('/api/setup', (req, res) => {
+  if (isSetUp()) throw httpError(409, 'Already set up');
+  setPin(req.body.pin);
+  res.json({ token: registerDevice(req.body.deviceName) });
+});
+
+app.post('/api/devices/register', (req, res) => {
+  checkPin(req.body.pin, req.ip);
+  res.json({ token: registerDevice(req.body.deviceName) });
+});
+
+app.use('/api', requireDevice);
+
+app.post('/api/parent/unlock', (req, res) => {
+  checkPin(req.body.pin, req.ip);
+  res.json({ parentToken: openParentSession() });
+});
+
+// ---------- kid side ----------
+
+const profileRow = (id) => {
+  const p = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id);
+  if (!p) throw httpError(404, 'No such profile');
+  return p;
+};
+const toProfile = (p) => ({ id: p.id, name: p.name, emoji: p.emoji, color: p.color, isParent: !!p.is_parent });
+
+app.get('/api/profiles', (req, res) => {
+  res.json(db.prepare('SELECT * FROM profiles ORDER BY is_parent, sort, id').all().map(toProfile));
+});
+
+app.get('/api/settings', (req, res) => res.json(getSettings()));
+
+function activeCharacter(profileId) {
+  return db.prepare(`
+    SELECT c.*, pc.started_at FROM profile_characters pc
+    JOIN characters c ON c.id = pc.character_id
+    WHERE pc.profile_id = ? AND pc.active = 1`).get(profileId);
+}
+
+function kidState(profileId) {
+  const profile = toProfile(profileRow(profileId));
+  const brushedToday = !!db.prepare(
+    'SELECT 1 FROM brush_sessions WHERE profile_id = ? AND local_date = ? AND completed = 1').get(profileId, today());
+  const c = activeCharacter(profileId);
+  if (!c || c.status !== 'ready') {
+    return { profile, brushedToday, character: c ? { id: c.id, name: c.name, status: c.status } : null };
+  }
+  const pieces = db.prepare(`
+    SELECT p.id, p.name, p.node_name AS nodeName, u.unlocked_on AS unlockedOn, u.placed_at AS placedAt
+    FROM pieces p LEFT JOIN unlocks u ON u.piece_id = p.id AND u.profile_id = ?
+    WHERE p.character_id = ? ORDER BY p.sort, p.id`).all(profileId, c.id);
+  const dances = c.has_rigged
+    ? db.prepare("SELECT id, name FROM dances WHERE character_id = ? AND status = 'ready' ORDER BY id").all(c.id)
+    : [];
+  const unlocked = pieces.filter((p) => p.unlockedOn);
+  return {
+    profile,
+    brushedToday,
+    character: {
+      id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version,
+      hasRigged: !!c.has_rigged,
+      pieces: pieces.map((p) => ({ id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt })),
+      dances,
+      unlockedToday: unlocked.some((p) => p.unlockedOn === today()),
+      nextPiece: pieces.find((p) => !p.unlockedOn)?.name ?? null,
+      complete: pieces.length > 0 && pieces.every((p) => p.placedAt)
+    }
+  };
+}
+
+app.get('/api/kids/:id/state', (req, res) => res.json(kidState(Number(req.params.id))));
+
+app.post('/api/kids/:id/brush', (req, res) => {
+  const profileId = Number(req.params.id);
+  profileRow(profileId);
+  const settings = getSettings();
+  const secondsBrushed = Math.max(0, Math.round(Number(req.body.secondsBrushed) || 0));
+  const secondsPaused = Math.max(0, Math.round(Number(req.body.secondsPaused) || 0));
+  const needed = settings.mainSeconds + settings.frontSeconds;
+  const completed = !!req.body.completed && secondsBrushed >= needed - 2;
+  const date = today();
+
+  let unlockedPiece = null;
+  db.transaction(() => {
+    const session = db.prepare(`
+      INSERT INTO brush_sessions (profile_id, local_date, seconds_brushed, seconds_paused, completed)
+      VALUES (?, ?, ?, ?, ?)`).run(profileId, date, secondsBrushed, secondsPaused, completed ? 1 : 0);
+    if (!completed) return;
+    const c = activeCharacter(profileId);
+    if (!c || c.status !== 'ready') return;
+    const next = db.prepare(`
+      SELECT p.* FROM pieces p
+      WHERE p.character_id = ? AND NOT EXISTS (SELECT 1 FROM unlocks u WHERE u.piece_id = p.id AND u.profile_id = ?)
+      ORDER BY p.sort, p.id LIMIT 1`).get(c.id, profileId);
+    if (!next) return;
+    // Count days of finished brushing since the last piece (or since this
+    // character was started). One piece a day at most, whatever the setting.
+    const last = db.prepare(`
+      SELECT MAX(u.unlocked_on) AS d FROM unlocks u JOIN pieces p ON p.id = u.piece_id
+      WHERE u.profile_id = ? AND p.character_id = ?`).get(profileId, c.id).d;
+    if (last === date) return;
+    const days = db.prepare(`
+      SELECT COUNT(DISTINCT local_date) AS n FROM brush_sessions
+      WHERE profile_id = ? AND completed = 1 AND finished_at >= ? AND (? IS NULL OR local_date > ?)`)
+      .get(profileId, c.started_at, last, last).n;
+    if (days < settings.daysPerPiece) return;
+    db.prepare('INSERT INTO unlocks (profile_id, piece_id, unlocked_on) VALUES (?, ?, ?)').run(profileId, next.id, date);
+    db.prepare('UPDATE brush_sessions SET unlocked_piece_id = ? WHERE id = ?').run(next.id, session.lastInsertRowid);
+    unlockedPiece = { id: next.id, name: next.name };
+  })();
+
+  res.json({ completed, unlockedPiece, state: kidState(profileId) });
+});
+
+app.post('/api/kids/:id/place', (req, res) => {
+  const profileId = Number(req.params.id);
+  const r = db.prepare("UPDATE unlocks SET placed_at = COALESCE(placed_at, datetime('now')) WHERE profile_id = ? AND piece_id = ?")
+    .run(profileId, Number(req.body.pieceId));
+  if (!r.changes) throw httpError(400, 'That piece is not unlocked yet');
+  res.json(kidState(profileId));
+});
+
+// ---------- 3D files ----------
+
+function sendAsset(res, file) {
+  if (!fs.existsSync(file)) throw httpError(404, 'File not found');
+  // URLs carry ?v=<version>, so a changed model gets a new URL.
+  res.set('Cache-Control', 'private, max-age=31536000, immutable');
+  res.type('model/gltf-binary').sendFile(file);
+}
+app.get('/api/characters/:id/build.glb', (req, res) => sendAsset(res, path.join(characterDir(Number(req.params.id)), 'build.glb')));
+app.get('/api/characters/:id/rigged.glb', (req, res) => sendAsset(res, path.join(characterDir(Number(req.params.id)), 'rigged.glb')));
+app.get('/api/characters/:id/dances/:danceId.glb', (req, res) =>
+  sendAsset(res, path.join(characterDir(Number(req.params.id)), 'dances', `${Number(req.params.danceId)}.glb`)));
+
+// ---------- parent side ----------
+
+app.use('/api/parent', requireParent);
+const parent = express.Router();
+app.use('/api/parent', parent);
+
+parent.get('/check', (req, res) => res.json({ ok: true }));
+
+parent.put('/pin', (req, res) => {
+  setPin(req.body.pin);
+  res.json({ ok: true });
+});
+
+parent.put('/settings', (req, res) => {
+  const b = req.body;
+  const patch = {};
+  if (b.mainSeconds != null) patch.mainSeconds = clampInt(b.mainSeconds, 30, 600);
+  if (b.frontSeconds != null) patch.frontSeconds = clampInt(b.frontSeconds, 0, 120);
+  if (b.daysPerPiece != null) patch.daysPerPiece = clampInt(b.daysPerPiece, 1, 14);
+  if (['low', 'normal', 'high'].includes(b.sensitivity)) patch.sensitivity = b.sensitivity;
+  if (b.showTrackingInfo != null) patch.showTrackingInfo = !!b.showTrackingInfo;
+  res.json(setSettings(patch));
+});
+const clampInt = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || lo)));
+
+// Profiles
+
+parent.get('/profiles', (req, res) => {
+  const rows = db.prepare('SELECT * FROM profiles ORDER BY is_parent, sort, id').all();
+  res.json(rows.map((p) => {
+    const c = activeCharacter(p.id);
+    return { ...toProfile(p), characterId: c?.id ?? null };
+  }));
+});
+
+parent.post('/profiles', (req, res) => {
+  const { name, emoji, color, isParent } = req.body;
+  if (!String(name || '').trim()) throw httpError(400, 'Name is required');
+  const r = db.prepare('INSERT INTO profiles (name, emoji, color, is_parent) VALUES (?, ?, ?, ?)')
+    .run(String(name).trim().slice(0, 40), emoji || '🙂', color || '#4f8cff', isParent ? 1 : 0);
+  res.json(toProfile(profileRow(r.lastInsertRowid)));
+});
+
+parent.put('/profiles/:id', (req, res) => {
+  const p = profileRow(Number(req.params.id));
+  const b = req.body;
+  db.prepare('UPDATE profiles SET name = ?, emoji = ?, color = ?, is_parent = ? WHERE id = ?').run(
+    String(b.name ?? p.name).trim().slice(0, 40) || p.name, b.emoji ?? p.emoji, b.color ?? p.color,
+    b.isParent == null ? p.is_parent : (b.isParent ? 1 : 0), p.id);
+  res.json(toProfile(profileRow(p.id)));
+});
+
+parent.delete('/profiles/:id', (req, res) => {
+  db.prepare('DELETE FROM profiles WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+parent.put('/profiles/:id/character', (req, res) => {
+  const profileId = profileRow(Number(req.params.id)).id;
+  const characterId = req.body.characterId ? Number(req.body.characterId) : null;
+  db.transaction(() => {
+    db.prepare('UPDATE profile_characters SET active = 0 WHERE profile_id = ?').run(profileId);
+    if (characterId) {
+      db.prepare(`INSERT INTO profile_characters (profile_id, character_id, active) VALUES (?, ?, 1)
+        ON CONFLICT(profile_id, character_id) DO UPDATE SET active = 1`).run(profileId, characterId);
+    }
+  })();
+  res.json({ ok: true });
+});
+
+parent.delete('/profiles/:id/progress/:characterId', (req, res) => {
+  const profileId = Number(req.params.id);
+  const characterId = Number(req.params.characterId);
+  db.transaction(() => {
+    db.prepare('DELETE FROM unlocks WHERE profile_id = ? AND piece_id IN (SELECT id FROM pieces WHERE character_id = ?)').run(profileId, characterId);
+    db.prepare("UPDATE profile_characters SET started_at = datetime('now') WHERE profile_id = ? AND character_id = ?").run(profileId, characterId);
+  })();
+  res.json({ ok: true });
+});
+
+// Characters
+
+function characterDetail(c) {
+  return {
+    id: c.id, name: c.name, kind: c.kind, status: c.status, error: c.error, hasRigged: !!c.has_rigged, version: c.version,
+    pieces: db.prepare('SELECT id, name, node_name AS nodeName FROM pieces WHERE character_id = ? ORDER BY sort, id').all(c.id),
+    dances: db.prepare('SELECT id, name, status, error FROM dances WHERE character_id = ? ORDER BY id').all(c.id)
+  };
+}
+const characterRow = (id) => {
+  const c = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
+  if (!c) throw httpError(404, 'No such character');
+  return c;
+};
+
+parent.get('/characters', (req, res) => {
+  res.json(db.prepare('SELECT * FROM characters ORDER BY id').all().map(characterDetail));
+});
+
+const characterUpload = upload.fields([{ name: 'pieces', maxCount: 60 }, { name: 'rigged', maxCount: 1 }, { name: 'dances', maxCount: 60 }]);
+
+parent.post('/characters', characterUpload, (req, res) => {
+  const files = req.files || {};
+  const pieces = files.pieces || [];
+  if (!String(req.body.name || '').trim()) { cleanup(req); throw httpError(400, 'Name is required'); }
+  if (!pieces.length) { cleanup(req); throw httpError(400, 'Add at least one piece (.glb)'); }
+  const kind = req.body.kind === 'dress' ? 'dress' : 'build';
+  const id = db.prepare('INSERT INTO characters (name, kind) VALUES (?, ?)').run(String(req.body.name).trim().slice(0, 60), kind).lastInsertRowid;
+  addPieces(id, pieces);
+  const jobs = [() => rebuild(id)];
+  if (files.rigged?.[0]) jobs.push(...riggedJobs(id, files.rigged[0]));
+  jobs.push(...danceJobs(id, files.dances || []));
+  enqueue(jobs);
+  res.status(202).json(characterDetail(characterRow(id)));
+});
+
+parent.put('/characters/:id', (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  const b = req.body;
+  db.transaction(() => {
+    db.prepare('UPDATE characters SET name = ?, kind = ? WHERE id = ?').run(
+      String(b.name ?? c.name).trim().slice(0, 60) || c.name, b.kind === 'dress' || b.kind === 'build' ? b.kind : c.kind, c.id);
+    // pieces: full list in the new unlock order, with names
+    (b.pieces || []).forEach((p, i) => {
+      db.prepare('UPDATE pieces SET name = ?, sort = ? WHERE id = ? AND character_id = ?')
+        .run(String(p.name || '').trim().slice(0, 60) || 'Piece', i, Number(p.id), c.id);
+    });
+  })();
+  res.json(characterDetail(characterRow(c.id)));
+});
+
+parent.delete('/characters/:id', (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  db.prepare('DELETE FROM characters WHERE id = ?').run(c.id);
+  fs.rmSync(characterDir(c.id), { recursive: true, force: true });
+  res.json({ ok: true });
+});
+
+parent.post('/characters/:id/pieces', upload.array('pieces', 60), (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  if (!req.files?.length) throw httpError(400, 'No .glb files received');
+  addPieces(c.id, req.files);
+  db.prepare("UPDATE characters SET status = 'processing', error = NULL WHERE id = ?").run(c.id);
+  enqueue([() => rebuild(c.id)]);
+  res.status(202).json(characterDetail(characterRow(c.id)));
+});
+
+parent.delete('/pieces/:id', (req, res) => {
+  const p = db.prepare('SELECT * FROM pieces WHERE id = ?').get(Number(req.params.id));
+  if (!p) throw httpError(404, 'No such piece');
+  db.prepare('DELETE FROM pieces WHERE id = ?').run(p.id);
+  fs.rmSync(path.join(characterDir(p.character_id), 'src', 'pieces', `${p.id}.glb`), { force: true });
+  const left = db.prepare('SELECT COUNT(*) AS n FROM pieces WHERE character_id = ?').get(p.character_id).n;
+  if (left) {
+    db.prepare("UPDATE characters SET status = 'processing', error = NULL WHERE id = ?").run(p.character_id);
+    enqueue([() => rebuild(p.character_id)]);
+  }
+  res.json(characterDetail(characterRow(p.character_id)));
+});
+
+parent.post('/characters/:id/rigged', upload.single('rigged'), (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  if (!req.file) throw httpError(400, 'No .glb file received');
+  enqueue(riggedJobs(c.id, req.file));
+  res.status(202).json(characterDetail(c));
+});
+
+parent.post('/characters/:id/dances', upload.array('dances', 60), (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  if (!req.files?.length) throw httpError(400, 'No .glb files received');
+  enqueue(danceJobs(c.id, req.files));
+  res.status(202).json(characterDetail(characterRow(c.id)));
+});
+
+parent.put('/dances/:id', (req, res) => {
+  db.prepare('UPDATE dances SET name = ? WHERE id = ?').run(String(req.body.name || '').trim().slice(0, 60) || 'Dance', Number(req.params.id));
+  res.json({ ok: true });
+});
+
+parent.delete('/dances/:id', (req, res) => {
+  const d = db.prepare('SELECT * FROM dances WHERE id = ?').get(Number(req.params.id));
+  if (d) {
+    db.prepare('DELETE FROM dances WHERE id = ?').run(d.id);
+    fs.rmSync(path.join(characterDir(d.character_id), 'dances', `${d.id}.glb`), { force: true });
+  }
+  res.json({ ok: true });
+});
+
+// History & devices
+
+parent.get('/brush-sessions', (req, res) => {
+  const rows = db.prepare(`
+    SELECT s.*, pr.name AS profile_name, pc.name AS piece_name FROM brush_sessions s
+    JOIN profiles pr ON pr.id = s.profile_id
+    LEFT JOIN pieces pc ON pc.id = s.unlocked_piece_id
+    WHERE (? IS NULL OR s.profile_id = ?)
+    ORDER BY s.id DESC LIMIT 200`).all(req.query.profileId ?? null, req.query.profileId ?? null);
+  res.json(rows.map((s) => ({
+    id: s.id, profileId: s.profile_id, profileName: s.profile_name, date: s.local_date, finishedAt: s.finished_at,
+    secondsBrushed: s.seconds_brushed, secondsPaused: s.seconds_paused, completed: !!s.completed, unlockedPiece: s.piece_name
+  })));
+});
+
+parent.get('/devices', (req, res) => {
+  res.json(db.prepare('SELECT id, name, created_at AS createdAt, last_seen_at AS lastSeenAt FROM devices ORDER BY id').all()
+    .map((d) => ({ ...d, isThisDevice: d.id === req.deviceId })));
+});
+
+parent.delete('/devices/:id', (req, res) => {
+  db.prepare('DELETE FROM devices WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+// ---------- processing queue ----------
+// One job at a time: shrinking models is CPU-heavy and the server runs
+// plenty of other things.
+
+let queue = Promise.resolve();
+function enqueue(jobs) {
+  for (const job of jobs) queue = queue.then(job).catch((e) => console.error('job failed:', e));
+}
+
+function addPieces(characterId, files) {
+  const srcDir = path.join(characterDir(characterId), 'src', 'pieces');
+  fs.mkdirSync(srcDir, { recursive: true });
+  let sort = db.prepare('SELECT COALESCE(MAX(sort), -1) AS s FROM pieces WHERE character_id = ?').get(characterId).s;
+  // Keep originals so the model can be rebuilt (new pieces, bigger budgets).
+  const sorted = [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, undefined, { numeric: true }));
+  for (const f of sorted) {
+    const id = db.prepare('INSERT INTO pieces (character_id, name, sort, node_name) VALUES (?, ?, ?, ?)')
+      .run(characterId, niceName(f.originalname), ++sort, 'pending').lastInsertRowid;
+    db.prepare('UPDATE pieces SET node_name = ? WHERE id = ?').run(`piece_${id}`, id);
+    moveFile(f.path, path.join(srcDir, `${id}.glb`));
+  }
+}
+
+async function rebuild(characterId) {
+  const pieces = db.prepare('SELECT id, node_name FROM pieces WHERE character_id = ? ORDER BY id').all(characterId);
+  const srcDir = path.join(characterDir(characterId), 'src', 'pieces');
+  try {
+    const t = Date.now();
+    const tris = await buildCharacterModel(characterId, pieces.map((p) => ({ nodeName: p.node_name, file: path.join(srcDir, `${p.id}.glb`) })));
+    const first = db.prepare('SELECT version FROM characters WHERE id = ?').get(characterId).version === 1;
+    db.transaction(() => {
+      // Brand-new character: unlock order bottom-up. Later rebuilds keep the
+      // order the parent set.
+      if (first) {
+        [...pieces].sort((a, b) => tris.bottoms[a.node_name] - tris.bottoms[b.node_name])
+          .forEach((p, i) => db.prepare('UPDATE pieces SET sort = ? WHERE id = ?').run(i, p.id));
+      }
+      db.prepare("UPDATE characters SET status = 'ready', error = NULL, version = version + 1 WHERE id = ?").run(characterId);
+    })();
+    console.log(`character ${characterId}: ${pieces.length} pieces, ${tris.before} -> ${tris.after} triangles in ${Date.now() - t} ms`);
+  } catch (e) {
+    db.prepare("UPDATE characters SET status = 'error', error = ? WHERE id = ?").run(String(e.message || e), characterId);
+    throw e;
+  }
+}
+
+function riggedJobs(characterId, file) {
+  const src = path.join(characterDir(characterId), 'src', 'rigged.glb');
+  moveFile(file.path, src);
+  return [async () => {
+    const tris = await processRigged(characterId, src);
+    db.prepare('UPDATE characters SET has_rigged = 1, version = version + 1 WHERE id = ?').run(characterId);
+    console.log(`character ${characterId}: rigged model ${tris.before} -> ${tris.after} triangles`);
+  }];
+}
+
+function danceJobs(characterId, files) {
+  return files.map((f) => {
+    const id = db.prepare('INSERT INTO dances (character_id, name) VALUES (?, ?)').run(characterId, niceName(f.originalname)).lastInsertRowid;
+    return async () => {
+      try {
+        await processDance(characterId, id, f.path);
+        db.prepare("UPDATE dances SET status = 'ready' WHERE id = ?").run(id);
+      } catch (e) {
+        db.prepare("UPDATE dances SET status = 'error', error = ? WHERE id = ?").run(String(e.message || e), id);
+      } finally {
+        fs.rmSync(f.path, { force: true });
+      }
+    };
+  });
+}
+
+function moveFile(from, to) {
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.copyFileSync(from, to);
+  fs.rmSync(from, { force: true });
+}
+
+function cleanup(req) {
+  for (const list of Object.values(req.files || {})) for (const f of list) fs.rmSync(f.path, { force: true });
+}
+
+// ---------- web app + errors ----------
+
+const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
+app.use(express.static(publicDir));
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+  const index = path.join(publicDir, 'index.html');
+  if (fs.existsSync(index)) return res.sendFile(index);
+  next();
+});
+
+app.use((req, res) => res.status(404).json({ error: 'Not found' }));
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) return res.status(400).json({ error: err.message });
+  if (!err.status) console.error(err);
+  res.status(err.status || 500).json({ error: err.status ? err.message : 'Something went wrong on the server' });
+});
+
+// Characters stuck mid-processing (server restarted) get retried.
+// Dance uploads live in the temp folder until processed, so those are lost.
+for (const c of db.prepare("SELECT id FROM characters WHERE status = 'processing'").all()) enqueue([() => rebuild(c.id)]);
+db.prepare("UPDATE dances SET status = 'error', error = 'The server restarted before this finished. Upload it again.' WHERE status = 'processing'").run();
+fs.rmSync(TMP_DIR, { recursive: true, force: true });
+fs.mkdirSync(TMP_DIR, { recursive: true });
+
+app.listen(PORT, () => console.log(`Family Track server ${VERSION} on port ${PORT}`));

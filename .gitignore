@@ -1,0 +1,17 @@
+node_modules/
+dist/
+data/
+app/public/mediapipe/
+*.keystore
+*.jks
+.env
+
+# Android build output (the project itself is committed)
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+app/android/local.properties
+app/android/app/src/main/assets/public/
+app/android/app/src/main/assets/capacitor.config.json
+app/android/app/src/main/assets/capacitor.plugins.json
+app/android/capacitor-cordova-android-plugins/
