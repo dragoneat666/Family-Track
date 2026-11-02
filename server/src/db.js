@@ -118,7 +118,9 @@ const MIGRATIONS = [
     SELECT 'Parent', '🧑', '#2ec27e', 1, value FROM settings
     WHERE key = 'parent_pin' AND NOT EXISTS (SELECT 1 FROM profiles WHERE is_parent = 1 AND is_test = 0);
   DELETE FROM settings WHERE key = 'parent_pin';
-  `
+  `,
+  // Pieces a grown-up gave by hand (brushed, but the camera didn't count it).
+  `ALTER TABLE brush_sessions ADD COLUMN manual INTEGER NOT NULL DEFAULT 0;`
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

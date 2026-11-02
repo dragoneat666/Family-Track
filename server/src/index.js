@@ -213,10 +213,7 @@ app.post('/api/kids/:id/brush', (req, res) => {
     if (!completed) return;
     const c = activeCharacter(profileId);
     if (!c || c.status !== 'ready') return;
-    const next = db.prepare(`
-      SELECT p.* FROM pieces p
-      WHERE p.character_id = ? AND NOT EXISTS (SELECT 1 FROM unlocks u WHERE u.piece_id = p.id AND u.profile_id = ?)
-      ORDER BY p.sort, p.id LIMIT 1`).get(c.id, profileId);
+    const next = nextLockedPiece(profileId, c.id);
     if (!next) return;
     // Count days of finished brushing since the last piece (or since this
     // character was started). One piece a day at most, whatever the setting.
@@ -238,6 +235,33 @@ app.post('/api/kids/:id/brush', (req, res) => {
   })();
 
   res.json({ completed, unlockedPiece, state: kidState(profileId) });
+});
+
+function nextLockedPiece(profileId, characterId) {
+  return db.prepare(`
+    SELECT p.* FROM pieces p
+    WHERE p.character_id = ? AND NOT EXISTS (SELECT 1 FROM unlocks u WHERE u.piece_id = p.id AND u.profile_id = ?)
+    ORDER BY p.sort, p.id LIMIT 1`).get(characterId, profileId);
+}
+
+// A grown-up gives the next piece by hand: the kid brushed, but the camera
+// didn't count it. Recorded as a finished brush marked "given by a grown-up",
+// so today counts as brushed and no second piece unlocks today.
+app.post('/api/parent/profiles/:id/give-piece', requireAdult, (req, res) => {
+  const profileId = profileRow(Number(req.params.id)).id;
+  const c = activeCharacter(profileId);
+  if (!c || c.status !== 'ready') throw httpError(400, "They aren't building anything yet");
+  const next = nextLockedPiece(profileId, c.id);
+  if (!next) throw httpError(400, `They already have every piece of ${c.name}`);
+  const settings = getSettings();
+  const date = today();
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO brush_sessions (profile_id, local_date, seconds_brushed, seconds_paused, completed, manual, unlocked_piece_id)
+      VALUES (?, ?, ?, 0, 1, 1, ?)`).run(profileId, date, settings.mainSeconds + settings.frontSeconds, next.id);
+    db.prepare('INSERT INTO unlocks (profile_id, piece_id, unlocked_on) VALUES (?, ?, ?)').run(profileId, next.id, date);
+  })();
+  res.json({ piece: { id: next.id, name: next.name }, character: c.name });
 });
 
 app.post('/api/kids/:id/place', (req, res) => {
@@ -279,7 +303,10 @@ parent.get('/overview', (req, res) => {
       brushedToday: s.brushedToday,
       lastBrushed: last?.local_date ?? null,
       character: ch?.status === 'ready'
-        ? { name: ch.name, placed: ch.pieces.filter((p) => p.placed).length, unlocked: ch.pieces.filter((p) => p.unlocked).length, total: ch.pieces.length }
+        ? {
+          name: ch.name, placed: ch.pieces.filter((p) => p.placed).length, unlocked: ch.pieces.filter((p) => p.unlocked).length,
+          total: ch.pieces.length, nextPiece: ch.nextPiece, unlockedToday: ch.unlockedToday
+        }
         : ch ? { name: ch.name, status: ch.status } : null
     };
   }));
@@ -354,24 +381,44 @@ parent.delete('/profiles/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// A hidden "Test kid" that runs the real kid screens on a fresh start:
-// no pieces, no history, building the chosen character.
+// The hidden "Test kid" grown-ups act as to try the real kid screens. It
+// keeps its progress between tries (per character, like a real kid) until
+// it's reset, and never shows up in lists or history.
+function testKid() {
+  let p = db.prepare('SELECT * FROM profiles WHERE is_test = 1').get();
+  if (!p) {
+    const id = db.prepare("INSERT INTO profiles (name, emoji, color, is_test) VALUES ('Test kid', '🧪', '#9b5de5', 1)").run().lastInsertRowid;
+    p = profileRow(id);
+  }
+  return p;
+}
+
+parent.get('/test-kid', (req, res) => {
+  const p = testKid();
+  res.json(kidState(p.id));
+});
+
+// Start acting as the test kid, building this character (keeps any progress on it).
 parent.post('/test-kid', (req, res) => {
   const characterId = Number(req.body.characterId);
   characterRow(characterId);
-  const profile = db.transaction(() => {
-    let p = db.prepare('SELECT * FROM profiles WHERE is_test = 1').get();
-    if (!p) {
-      const id = db.prepare("INSERT INTO profiles (name, emoji, color, is_test) VALUES ('Test kid', '🧪', '#9b5de5', 1)").run().lastInsertRowid;
-      p = profileRow(id);
-    }
+  const p = testKid();
+  db.transaction(() => {
+    db.prepare('UPDATE profile_characters SET active = 0 WHERE profile_id = ?').run(p.id);
+    db.prepare(`INSERT INTO profile_characters (profile_id, character_id, active) VALUES (?, ?, 1)
+      ON CONFLICT(profile_id, character_id) DO UPDATE SET active = 1`).run(p.id, characterId);
+  })();
+  res.json(toProfile(p));
+});
+
+parent.post('/test-kid/reset', (req, res) => {
+  const p = testKid();
+  db.transaction(() => {
     db.prepare('DELETE FROM unlocks WHERE profile_id = ?').run(p.id);
     db.prepare('DELETE FROM brush_sessions WHERE profile_id = ?').run(p.id);
-    db.prepare('DELETE FROM profile_characters WHERE profile_id = ?').run(p.id);
-    db.prepare('INSERT INTO profile_characters (profile_id, character_id, active) VALUES (?, ?, 1)').run(p.id, characterId);
-    return p;
+    db.prepare("UPDATE profile_characters SET started_at = datetime('now') WHERE profile_id = ?").run(p.id);
   })();
-  res.json(toProfile(profile));
+  res.json(kidState(p.id));
 });
 
 parent.put('/profiles/:id/character', (req, res) => {
@@ -516,7 +563,8 @@ parent.get('/brush-sessions', (req, res) => {
     ORDER BY s.id DESC LIMIT 200`).all(req.query.profileId ?? null, req.query.profileId ?? null);
   res.json(rows.map((s) => ({
     id: s.id, profileId: s.profile_id, profileName: s.profile_name, date: s.local_date, finishedAt: s.finished_at,
-    secondsBrushed: s.seconds_brushed, secondsPaused: s.seconds_paused, completed: !!s.completed, unlockedPiece: s.piece_name
+    secondsBrushed: s.seconds_brushed, secondsPaused: s.seconds_paused, completed: !!s.completed, unlockedPiece: s.piece_name,
+    manual: !!s.manual
   })));
 });
 
@@ -555,6 +603,15 @@ function addPieces(characterId, files) {
   }
 }
 
+// Devices cache 3D files forever by URL (…?v=<version>), so a version must
+// never repeat, even when a deleted character's id gets reused. New rows
+// start at 1 ("never built"); every build gets a fresh timestamp.
+let lastVersion = 0;
+function newVersion() {
+  lastVersion = Math.max(Date.now(), lastVersion + 1);
+  return lastVersion;
+}
+
 async function rebuild(characterId) {
   const pieces = db.prepare('SELECT id, node_name FROM pieces WHERE character_id = ? ORDER BY id').all(characterId);
   const srcDir = path.join(characterDir(characterId), 'src', 'pieces');
@@ -569,7 +626,7 @@ async function rebuild(characterId) {
         [...pieces].sort((a, b) => tris.bottoms[a.node_name] - tris.bottoms[b.node_name])
           .forEach((p, i) => db.prepare('UPDATE pieces SET sort = ? WHERE id = ?').run(i, p.id));
       }
-      db.prepare("UPDATE characters SET status = 'ready', error = NULL, version = version + 1 WHERE id = ?").run(characterId);
+      db.prepare("UPDATE characters SET status = 'ready', error = NULL, version = ? WHERE id = ?").run(newVersion(), characterId);
     })();
     console.log(`character ${characterId}: ${pieces.length} pieces, ${tris.before} -> ${tris.after} triangles in ${Date.now() - t} ms`);
   } catch (e) {
@@ -583,7 +640,7 @@ function riggedJobs(characterId, file) {
   moveFile(file.path, src);
   return [async () => {
     const tris = await processRigged(characterId, src);
-    db.prepare('UPDATE characters SET has_rigged = 1, version = version + 1 WHERE id = ?').run(characterId);
+    db.prepare('UPDATE characters SET has_rigged = 1, version = ? WHERE id = ?').run(newVersion(), characterId);
     console.log(`character ${characterId}: rigged model ${tris.before} -> ${tris.after} triangles`);
   }];
 }

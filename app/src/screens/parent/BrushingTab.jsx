@@ -64,8 +64,8 @@ export default function BrushingTab({ onAuthLost }) {
               <tr key={s.id}>
                 <td>{s.date}</td>
                 <td>{s.profileName}</td>
-                <td>{s.completed ? '✅' : '⏹️ stopped'}</td>
-                <td>{fmt(s.secondsBrushed)} brushing{s.secondsPaused ? `, ${fmt(s.secondsPaused)} paused` : ''}</td>
+                <td>{s.manual ? '🎁 given by a grown-up' : s.completed ? '✅' : '⏹️ stopped'}</td>
+                <td>{s.manual ? '' : `${fmt(s.secondsBrushed)} brushing${s.secondsPaused ? `, ${fmt(s.secondsPaused)} paused` : ''}`}</td>
                 <td>{s.unlockedPiece ? `🧩 ${s.unlockedPiece}` : ''}</td>
               </tr>
             ))}

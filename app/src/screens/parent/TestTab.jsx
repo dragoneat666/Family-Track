@@ -11,14 +11,25 @@ export default function TestTab({ onAuthLost, show }) {
   const { error, call } = useParentCall(onAuthLost);
   const [characters, setCharacters] = useState([]);
   const [kidCharacter, setKidCharacter] = useState('');
+  const [testState, setTestState] = useState(null);
+
+  async function loadTestKid() {
+    const s = await call(() => api.get('/api/parent/test-kid'));
+    if (s) setTestState(s);
+    return s;
+  }
 
   useEffect(() => {
-    call(() => api.get('/api/parent/characters')).then((c) => {
+    (async () => {
+      const [c, s] = await Promise.all([call(() => api.get('/api/parent/characters')), loadTestKid()]);
       if (!c) return;
       const ready = c.filter((x) => x.status === 'ready');
       setCharacters(ready);
-      if (ready.length) setKidCharacter(String(ready[0].id));
-    });
+      // Pick up where the test kid left off, if it was building something.
+      const current = s?.character && ready.find((x) => x.id === s.character.id);
+      if (current) setKidCharacter(String(current.id));
+      else if (ready.length) setKidCharacter(String(ready[0].id));
+    })();
   }, []);
 
   function testBuild(c) {
@@ -26,26 +37,40 @@ export default function TestTab({ onAuthLost, show }) {
     show(<Build testCharacter={testCharacter} onExit={() => show(null)} />);
   }
 
-  async function tryAsKid() {
+  async function actAsKid() {
     const profile = await call(() => api.post('/api/parent/test-kid', { characterId: Number(kidCharacter) }));
-    if (profile) show(<KidFlow profile={profile} onExit={() => show(null)} />);
+    if (profile) show(<KidFlow profile={profile} onExit={() => { show(null); loadTestKid(); }} />);
   }
+
+  async function resetTestKid() {
+    if (!window.confirm('Start the test kid over? All its pieces go back to locked.')) return;
+    const s = await call(() => api.post('/api/parent/test-kid/reset'));
+    if (s) setTestState(s);
+  }
+
+  const tc = testState?.character;
+  const progress = tc?.pieces
+    ? `building ${tc.name}: ${tc.pieces.filter((p) => p.placed).length} of ${tc.pieces.length} pieces placed` +
+      (tc.pieces.some((p) => p.unlocked && !p.placed) ? `, ${tc.pieces.filter((p) => p.unlocked && !p.placed).length} waiting` : '')
+    : 'not started yet';
 
   return (
     <div className="stack">
       {error && <p className="error">{error}</p>}
 
       <div className="card stack">
-        <h3>🧒 Try it as a kid</h3>
-        <p className="muted">The real kid screens, start to finish: brush, unlock a piece, build it, dance. Uses a hidden
-          "Test kid" that gets a new piece after <b>every</b> finished brush (not once a day), shows the tracking numbers and
-          a skip button, and starts fresh each time. Your kids' profiles and history aren't touched.</p>
+        <h3>🧪 Act as the test kid</h3>
+        <p className="muted">Use the app exactly like a kid would: brush, unlock a piece, build, dance. The test kid is invisible
+          (not in any list or history) and keeps its progress between tries, so each brush adds to the same build. It gets a
+          piece after <b>every</b> finished brush instead of once a day, and shows the tracking numbers and a skip button.</p>
+        <p className="small"><b>Test kid:</b> {progress}</p>
         {characters.length ? (
           <div className="row wrap">
             <select value={kidCharacter} onChange={(e) => setKidCharacter(e.target.value)}>
               {characters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <button className="btn primary" onClick={tryAsKid}>Start as Test kid</button>
+            <button className="btn primary" onClick={actAsKid}>Act as test kid</button>
+            <button className="btn" onClick={resetTestKid} disabled={!tc?.pieces?.some((p) => p.unlocked)}>Start over</button>
           </div>
         ) : (
           <p className="muted">Add a character under Characters first.</p>
