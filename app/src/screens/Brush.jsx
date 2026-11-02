@@ -207,7 +207,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
         <div className={`brush-message ${pause ? 'warn' : ''}`}>{message}</div>
         {showInfo && status && (
           <div className="tracking-info">
-            face {status.faceVisible ? '✓' : '✗'} · mouth {status.mouth.toFixed(1)} · eyes {status.eyes.toFixed(1)}
+            face {status.faceVisible ? '✓' : '✗'} · mouth {status.mouth.toFixed(1)} · face moving {status.moving.toFixed(2)}
             · counts {status.score.toFixed(1)} / needs {status.threshold} · {status.stepMs.toFixed(0)} ms
           </div>
         )}

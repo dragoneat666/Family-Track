@@ -63,8 +63,7 @@ export default function TestTab({ onAuthLost, show }) {
         <h3>🪥 Test brushing only</h3>
         <p className="muted">Runs the brushing screen with the tracking numbers showing. Nothing is saved and no pieces unlock.
           The box around the mouth turns green while it counts as brushing, yellow when it sees you but not brushing, red when it
-          can't see a face. The thin white box across the eyes is what it compares against: moving your head or the phone
-          moves both boxes the same, so that doesn't count.</p>
+          can't see a face. It doesn't count while your whole face is moving (moving your head or the phone).</p>
         <button className="btn" onClick={() => show(<Brush testMode onExit={() => show(null)} />)}>Start test brushing</button>
       </div>
 

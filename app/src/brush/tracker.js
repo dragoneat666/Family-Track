@@ -7,19 +7,22 @@ import { FilesetResolver, FaceDetector } from '@mediapipe/tasks-vision';
 //  1. A small, fast face detector finds the eyes. Everything is placed from
 //     the eyes (a brush covers the mouth, which makes the face box jumpy),
 //     and that position is smoothed.
-//  2. Two patches follow the face: one around the mouth (where the hand and
-//     brush are) and one across the eyes.
-//  3. Each patch is compared with its previous frame, after trying small
-//     shifts and keeping the best match. Moving the head or the phone mostly
-//     slides the picture, which the shift cancels out; a hand and brush
-//     moving across the face don't line up that way, so they still count.
-//  4. What's left in the mouth patch, minus what's left in the eye patch,
-//     is the brushing score. If the eyes are very busy, nothing counts.
+//  2. A patch around the mouth (where the hand and brush are) follows the face.
+//  3. It's compared with its previous frame, after trying small shifts and
+//     keeping the best match. Moving the head or the phone mostly slides the
+//     picture, which the shift cancels out; a hand and brush moving across
+//     the face don't line up that way, so they still count.
+//  4. While the face itself is moving a lot (head or phone moving), nothing
+//     counts.
+//
+// Tuned from a real tracking check (Nov 2026): leftover mouth change was
+// ~1 holding still, ~4 moving the head, ~3 moving the phone and ~16
+// brushing; the face moved ~0.2-0.3 eye-widths per check when moving the
+// head or phone and ~0.1 while brushing.
 
 // Score needed to count as brushing, by sensitivity setting.
-export const THRESHOLDS = { low: 4, normal: 2.5, high: 1.5 };
-const EYE_WEIGHT = 1; // how much of the eye patch's leftover change to subtract
-const EYES_TOO_BUSY = 2; // eye change above this many thresholds: head/phone moving, don't count
+export const THRESHOLDS = { low: 11, normal: 8, high: 6 };
+const MOVING_FACE = 0.3; // face moving more than this many eye-widths per check: don't count
 const FACE_LOST_MS = 1500;
 const STEP_MS = 90; // ~11 checks a second at most; slow tablets get fewer
 const PATCH_W = 32;
@@ -51,9 +54,10 @@ function loadDetector() {
 }
 
 // Starts watching `video`. onUpdate gets, after every check:
-//   faceVisible, brushing, score, threshold, stepMs, region, eyeRegion,
-//   mouth / eyes (leftover change after lining up, smoothed),
-//   and raw per-check numbers in `sample` (used by the tracking check).
+//   faceVisible, brushing, score, threshold, stepMs, region,
+//   mouth (leftover change after lining up, smoothed), moving (how fast the
+//   face moves, smoothed), and raw per-check numbers in `sample` (used by
+//   the tracking check).
 // Returns stop().
 export async function startTracker(video, { sensitivity = 'normal', onUpdate }) {
   const detector = await loadDetector();
@@ -68,9 +72,9 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
   let lastStep = 0;
   let lastFaceAt = -Infinity;
   let geo = null; // smoothed { ex, ey, d }: between the eyes, eye distance (video px)
-  const prev = { mouth: null, eyes: null };
+  let prevPatch = null;
   let mouth = 0;
-  let eyes = 0;
+  let moving = 0;
   let score = 0;
 
   function grab(r) {
@@ -145,25 +149,19 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
     const faceVisible = !!geo && now - lastFaceAt < FACE_LOST_MS;
 
     let region = null;
-    let eyeRegion = null;
     let m = { raw: 0, aligned: 0 };
-    let e = { raw: 0, aligned: 0 };
     let raw = 0;
+    moving = moving * 0.6 + moved * 0.4;
     if (geo) {
       const { ex, ey, d } = geo;
       // Mouth sits about 1.1 eye-distances below the eyes; the patch reaches
       // a bit lower and wider to take in the hand and brush.
       region = { x: ex - 1.4 * d, y: ey + 0.45 * d, w: 2.8 * d, h: 2.1 * d };
-      eyeRegion = { x: ex - 1.2 * d, y: ey - 0.45 * d, w: 2.4 * d, h: 0.9 * d };
-      const mp = grab(region);
-      const ep = grab(eyeRegion);
-      m = change(mp, prev.mouth);
-      e = change(ep, prev.eyes);
-      prev.mouth = mp;
-      prev.eyes = ep;
+      const patch = grab(region);
+      m = change(patch, prevPatch);
+      prevPatch = patch;
       mouth = mouth * 0.6 + m.aligned * 0.4;
-      eyes = eyes * 0.6 + e.aligned * 0.4;
-      raw = e.aligned > threshold * EYES_TOO_BUSY ? 0 : Math.max(0, m.aligned - e.aligned * EYE_WEIGHT);
+      raw = moving > MOVING_FACE ? 0 : m.aligned;
     }
     score = score * 0.6 + raw * 0.4;
     const brushing = faceVisible && score > threshold;
@@ -173,22 +171,20 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
       brushing,
       score,
       mouth,
-      eyes,
+      moving,
       threshold,
       stepMs: performance.now() - t0,
       region,
-      eyeRegion,
       videoWidth: vw,
       videoHeight: vh,
       sample: {
         t: Math.round(now),
         detected,
         moved: round(moved),
+        moving: round(moving),
         d: round(geo?.d ?? 0),
         mouthRaw: round(m.raw),
         mouthAligned: round(m.aligned),
-        eyesRaw: round(e.raw),
-        eyesAligned: round(e.aligned),
         score: round(score),
         brushing
       }

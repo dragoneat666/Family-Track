@@ -17,6 +17,16 @@
 
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; height: 100%; }
+/* The Android app draws under the status bar and gesture bar; keep content
+   clear of them. Capacitor provides the --safe-area-* values, newer
+   WebViews the env() ones. */
+#root {
+  padding:
+    max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px))
+    max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))
+    max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))
+    max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+}
 body {
   background: var(--bg);
   -webkit-tap-highlight-color: transparent;

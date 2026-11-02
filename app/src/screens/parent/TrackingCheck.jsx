@@ -106,7 +106,7 @@ export default function TrackingCheck({ onExit }) {
         checks: s.length,
         counted: s.length ? Math.round((100 * s.filter((x) => x.brushing).length) / s.length) : 0,
         mouth: avg('mouthAligned'),
-        eyes: avg('eyesAligned'),
+        moving: avg('moving'),
         faceSeen: s.length ? Math.round((100 * s.filter((x) => x.detected).length) / s.length) : 0
       };
     });
@@ -186,7 +186,7 @@ export default function TrackingCheck({ onExit }) {
         )}
         {live && (
           <div className="tracking-info">
-            mouth {live.mouth.toFixed(1)} · eyes {live.eyes.toFixed(1)} · counts {live.score.toFixed(1)} / needs {live.threshold}
+            mouth {live.mouth.toFixed(1)} · face moving {live.moving.toFixed(2)} · counts {live.score.toFixed(1)} / needs {live.threshold}
           </div>
         )}
         <button className="btn link" onClick={onExit}>Cancel</button>

@@ -7,5 +7,11 @@
   },
   "android": {
     "allowMixedContent": true
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "LIGHT",
+      "initialViewportFitValueHint": "cover"
+    }
   }
 }
