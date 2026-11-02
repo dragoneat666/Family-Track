@@ -4,14 +4,19 @@ import { FilesetResolver, FaceDetector } from '@mediapipe/tasks-vision';
 // frames are looked at in memory and thrown away. Nothing is saved or sent.
 //
 // How it decides:
-//  1. A small, fast face detector finds the face and the mouth.
-//  2. A patch around the mouth (where the hand and brush are) is cut out,
-//     following the face, so moving the head around doesn't count.
-//  3. That patch is compared with the previous one. Brushing makes it change
-//     a lot; sitting still, talking or bouncing in place mostly doesn't.
+//  1. A small, fast face detector finds the face, the eyes and the mouth.
+//  2. Two patches are cut out, both following the face: one around the
+//     mouth (where the hand and brush are) and one across the eyes.
+//  3. Each is compared with its previous frame. Moving the head or the
+//     phone changes both patches about the same (the face-following is
+//     never perfect), so the eye patch's change is subtracted from the mouth
+//     patch's. Brushing changes the mouth patch while the eyes stay put.
+//     If the eyes move a lot, nothing counts at all.
 
 // Movement score needed to count as brushing, by sensitivity setting.
 export const THRESHOLDS = { low: 6, normal: 3.5, high: 2 };
+const EYE_WEIGHT = 1.5; // how much of the eye patch's movement to subtract
+const EYES_TOO_BUSY = 2; // eye movement above this many thresholds: head/phone is moving, don't count
 const FACE_LOST_MS = 1500;
 const STEP_MS = 90; // ~11 checks a second at most; slow tablets get fewer
 const PATCH_W = 32;
@@ -41,7 +46,8 @@ function loadDetector() {
 }
 
 // Starts watching `video`. onUpdate gets { faceVisible, brushing, score,
-// threshold, stepMs, region } after every check. Returns stop().
+// mouth, eyes, threshold, stepMs, region, eyeRegion } after every check.
+// Returns stop().
 export async function startTracker(video, { sensitivity = 'normal', onUpdate }) {
   const detector = await loadDetector();
   const threshold = THRESHOLDS[sensitivity] ?? THRESHOLDS.normal;
@@ -54,9 +60,40 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
   let raf = 0;
   let lastStep = 0;
   let lastFaceAt = -Infinity;
-  let box = null; // smoothed { cx, cy, w, h } of the mouth area, in video pixels
-  let prev = null;
+  // Smoothed face position in video pixels: mouth (mx, my), between the
+  // eyes (ex, ey), face size (w, h).
+  let box = null;
+  const prev = { mouth: null, eyes: null };
+  let mouth = 0;
+  let eyes = 0;
   let score = 0;
+
+  // How much a face-following patch changed since the last check.
+  function patchChange(key, r) {
+    ctx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, PATCH_W, PATCH_H);
+    const px = ctx.getImageData(0, 0, PATCH_W, PATCH_H).data;
+    const gray = new Float32Array(PATCH_W * PATCH_H);
+    let mean = 0;
+    for (let i = 0; i < gray.length; i++) {
+      gray[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+      mean += gray[i];
+    }
+    // Remove overall brightness so the camera's auto-exposure doesn't count.
+    mean /= gray.length;
+    for (let i = 0; i < gray.length; i++) gray[i] -= mean;
+    let change = 0;
+    const before = prev[key];
+    if (before) {
+      let sum = 0;
+      for (let i = 0; i < gray.length; i++) {
+        const d = Math.abs(gray[i] - before[i]);
+        if (d > 6) sum += d; // ignore camera noise
+      }
+      change = sum / gray.length;
+    }
+    prev[key] = gray;
+    return change;
+  }
 
   function step(now) {
     if (!running) return;
@@ -64,17 +101,21 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
     if (now - lastStep < STEP_MS || video.readyState < 2 || !video.videoWidth) return;
     lastStep = now;
     const t0 = performance.now();
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
 
     const face = largest(detector.detectForVideo(video, now).detections);
     if (face?.boundingBox && face.keypoints?.length > 3) {
-      const mouth = face.keypoints[3];
+      const [rightEye, leftEye, , mouthPoint] = face.keypoints;
       const target = {
-        cx: mouth.x * video.videoWidth,
-        cy: mouth.y * video.videoHeight,
+        mx: mouthPoint.x * vw,
+        my: mouthPoint.y * vh,
+        ex: ((rightEye.x + leftEye.x) / 2) * vw,
+        ey: ((rightEye.y + leftEye.y) / 2) * vh,
         w: face.boundingBox.width,
         h: face.boundingBox.height
       };
-      box = box ? lerpBox(box, target, 0.4) : target;
+      box = box ? lerpBox(box, target, 0.6) : target;
       lastFaceAt = now;
     }
     // A brush in the mouth can hide the face for a moment; keep the last
@@ -83,28 +124,15 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
 
     let raw = 0;
     let region = null;
+    let eyeRegion = null;
     if (box) {
-      region = { x: box.cx - box.w * 0.65, y: box.cy - box.h * 0.35, w: box.w * 1.3, h: box.h * 0.9 };
-      ctx.drawImage(video, region.x, region.y, region.w, region.h, 0, 0, PATCH_W, PATCH_H);
-      const px = ctx.getImageData(0, 0, PATCH_W, PATCH_H).data;
-      const gray = new Float32Array(PATCH_W * PATCH_H);
-      let mean = 0;
-      for (let i = 0; i < gray.length; i++) {
-        gray[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
-        mean += gray[i];
-      }
-      // Remove overall brightness so the camera's auto-exposure doesn't count.
-      mean /= gray.length;
-      for (let i = 0; i < gray.length; i++) gray[i] -= mean;
-      if (prev) {
-        let sum = 0;
-        for (let i = 0; i < gray.length; i++) {
-          const d = Math.abs(gray[i] - prev[i]);
-          if (d > 6) sum += d; // ignore camera noise
-        }
-        raw = sum / gray.length;
-      }
-      prev = gray;
+      region = { x: box.mx - box.w * 0.65, y: box.my - box.h * 0.35, w: box.w * 1.3, h: box.h * 0.9 };
+      eyeRegion = { x: box.ex - box.w * 0.5, y: box.ey - box.h * 0.18, w: box.w, h: box.h * 0.36 };
+      const m = patchChange('mouth', region);
+      const e = patchChange('eyes', eyeRegion);
+      mouth = mouth * 0.6 + m * 0.4;
+      eyes = eyes * 0.6 + e * 0.4;
+      raw = e > threshold * EYES_TOO_BUSY ? 0 : Math.max(0, m - e * EYE_WEIGHT);
     }
     score = score * 0.6 + raw * 0.4;
 
@@ -112,11 +140,14 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
       faceVisible,
       brushing: faceVisible && score > threshold,
       score,
+      mouth,
+      eyes,
       threshold,
       stepMs: performance.now() - t0,
       region,
-      videoWidth: video.videoWidth,
-      videoHeight: video.videoHeight
+      eyeRegion,
+      videoWidth: vw,
+      videoHeight: vh
     });
   }
 
@@ -136,12 +167,7 @@ function largest(detections = []) {
   return best?.d ?? null;
 }
 
-const lerpBox = (a, b, t) => ({
-  cx: a.cx + (b.cx - a.cx) * t,
-  cy: a.cy + (b.cy - a.cy) * t,
-  w: a.w + (b.w - a.w) * t,
-  h: a.h + (b.h - a.h) * t
-});
+const lerpBox = (a, b, t) => Object.fromEntries(Object.keys(b).map((k) => [k, a[k] + (b[k] - a[k]) * t]));
 
 // Front camera, small resolution: plenty for this and easy on slow tablets.
 export function openCamera() {

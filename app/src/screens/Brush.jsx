@@ -206,8 +206,8 @@ export default function Brush({ profile, testMode = false, onExit }) {
         <div className={`brush-message ${pause ? 'warn' : ''}`}>{message}</div>
         {showInfo && status && (
           <div className="tracking-info">
-            face {status.faceVisible ? '✓' : '✗'} · movement {status.score.toFixed(1)} / needs {status.threshold}
-            · {status.stepMs.toFixed(0)} ms per check
+            face {status.faceVisible ? '✓' : '✗'} · mouth {status.mouth.toFixed(1)} · eyes {status.eyes.toFixed(1)}
+            · counts {status.score.toFixed(1)} / needs {status.threshold} · {status.stepMs.toFixed(0)} ms
           </div>
         )}
         <div className="brush-buttons">
@@ -248,6 +248,11 @@ function drawOverlay(canvas, st, show) {
   ctx.lineWidth = 4;
   ctx.strokeStyle = st.brushing ? '#3ddc84' : st.faceVisible ? '#ffcc00' : '#ff5555';
   ctx.strokeRect(st.region.x, st.region.y, st.region.w, st.region.h);
+  if (st.eyeRegion) {
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.strokeRect(st.eyeRegion.x, st.eyeRegion.y, st.eyeRegion.w, st.eyeRegion.h);
+  }
 }
 
 function BrushResult({ result, testMode, onExit }) {
