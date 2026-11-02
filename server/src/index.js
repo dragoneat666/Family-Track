@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, getSettings, setSettings } from './db.js';
-import { PORT, TMP_DIR, APK_DIR, today } from './config.js';
+import { PORT, DATA_DIR, TMP_DIR, APK_DIR, today } from './config.js';
 import {
   hasAdults, hashPin, validPin, checkAccountPin, checkAnyAdultPin, createDevice,
   optionalDevice, requireAccount, requireAdult, httpError
@@ -283,6 +283,19 @@ parent.get('/overview', (req, res) => {
         : ch ? { name: ch.name, status: ch.status } : null
     };
   }));
+});
+
+// Numbers from a tracking check (no pictures), kept for tuning the
+// brushing detection. Only the newest 30 are kept.
+parent.post('/tracking-log', (req, res) => {
+  const dir = path.join(DATA_DIR, 'tracking-logs');
+  fs.mkdirSync(dir, { recursive: true });
+  const name = `${new Date().toISOString().replace(/[:.]/g, '-')}-${req.account.id}.json`;
+  const { sensitivity, userAgent, summary, samples } = req.body;
+  fs.writeFileSync(path.join(dir, name), JSON.stringify({ sensitivity, userAgent, summary, samples }));
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  for (const old of files.slice(0, -30)) fs.rmSync(path.join(dir, old), { force: true });
+  res.json({ ok: true });
 });
 
 parent.put('/settings', (req, res) => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, canUseCamera } from '../api.js';
 import { openCamera, startTracker } from '../brush/tracker.js';
+import { drawOverlay } from '../brush/overlay.js';
 
 // The brushing session. The countdown only moves while the camera sees the
 // kid actually brushing; otherwise it simply waits. In test mode (from the
@@ -231,28 +232,6 @@ function MouthMap({ zone }) {
       {zone === 'front' && <rect x="62" y="8" width="76" height="104" rx="24" className="tooth-zone active" />}
     </svg>
   );
-}
-
-function drawOverlay(canvas, st, show) {
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  if (!show || !st.region) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    return;
-  }
-  if (canvas.width !== st.videoWidth) {
-    canvas.width = st.videoWidth;
-    canvas.height = st.videoHeight;
-  }
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = st.brushing ? '#3ddc84' : st.faceVisible ? '#ffcc00' : '#ff5555';
-  ctx.strokeRect(st.region.x, st.region.y, st.region.w, st.region.h);
-  if (st.eyeRegion) {
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.strokeRect(st.eyeRegion.x, st.eyeRegion.y, st.eyeRegion.w, st.eyeRegion.h);
-  }
 }
 
 function BrushResult({ result, testMode, onExit }) {

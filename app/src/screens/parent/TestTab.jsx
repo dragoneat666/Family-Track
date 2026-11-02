@@ -4,6 +4,7 @@ import { useParentCall } from './useParentCall.js';
 import Brush from '../Brush.jsx';
 import Build from '../Build.jsx';
 import KidHome from '../KidHome.jsx';
+import TrackingCheck from './TrackingCheck.jsx';
 
 // Try brushing and building without touching any kid's progress.
 export default function TestTab({ onAuthLost, show }) {
@@ -49,6 +50,13 @@ export default function TestTab({ onAuthLost, show }) {
         ) : (
           <p className="muted">Add a character under Characters first.</p>
         )}
+      </div>
+
+      <div className="card stack">
+        <h3>📏 Tracking check</h3>
+        <p className="muted">About 30 seconds: hold still, move your head, move the phone, then brush. It shows how much of each
+          counted as brushing, and sends just the numbers (never a picture) to the server so the detection can be tuned.</p>
+        <button className="btn primary" onClick={() => show(<TrackingCheck onExit={() => show(null)} />)}>Start tracking check</button>
       </div>
 
       <div className="card stack">
