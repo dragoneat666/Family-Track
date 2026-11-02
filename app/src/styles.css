@@ -193,6 +193,10 @@ input[type='checkbox'] { width: 22px; height: 22px; }
 .brush-buttons { display: flex; gap: 12px; }
 .tracking-info { font-family: ui-monospace, monospace; font-size: 0.85rem; color: var(--muted); background: #fff; padding: 6px 10px; border-radius: 8px; }
 .test-banner { background: #ffe066; color: #7a4b00; font-weight: 800; padding: 6px 14px; border-radius: 99px; }
+.test-strip {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  background: #ffe066; color: #7a4b00; font-weight: 800; padding: 8px 16px;
+}
 
 .result { text-align: center; align-items: center; }
 .result-emoji { font-size: 5rem; }

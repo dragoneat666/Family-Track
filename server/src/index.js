@@ -62,10 +62,10 @@ const profileRow = (id) => {
   if (!p) throw httpError(404, 'No such profile');
   return p;
 };
-const toProfile = (p) => ({ id: p.id, name: p.name, emoji: p.emoji, color: p.color, isParent: !!p.is_parent });
+const toProfile = (p) => ({ id: p.id, name: p.name, emoji: p.emoji, color: p.color, isParent: !!p.is_parent, isTest: !!p.is_test });
 
 app.get('/api/profiles', (req, res) => {
-  res.json(db.prepare('SELECT * FROM profiles ORDER BY is_parent, sort, id').all().map(toProfile));
+  res.json(db.prepare('SELECT * FROM profiles WHERE is_test = 0 ORDER BY is_parent, sort, id').all().map(toProfile));
 });
 
 app.get('/api/settings', (req, res) => res.json(getSettings()));
@@ -112,7 +112,7 @@ app.get('/api/kids/:id/state', (req, res) => res.json(kidState(Number(req.params
 
 app.post('/api/kids/:id/brush', (req, res) => {
   const profileId = Number(req.params.id);
-  profileRow(profileId);
+  const isTest = !!profileRow(profileId).is_test;
   const settings = getSettings();
   const secondsBrushed = Math.max(0, Math.round(Number(req.body.secondsBrushed) || 0));
   const secondsPaused = Math.max(0, Math.round(Number(req.body.secondsPaused) || 0));
@@ -135,15 +135,18 @@ app.post('/api/kids/:id/brush', (req, res) => {
     if (!next) return;
     // Count days of finished brushing since the last piece (or since this
     // character was started). One piece a day at most, whatever the setting.
-    const last = db.prepare(`
-      SELECT MAX(u.unlocked_on) AS d FROM unlocks u JOIN pieces p ON p.id = u.piece_id
-      WHERE u.profile_id = ? AND p.character_id = ?`).get(profileId, c.id).d;
-    if (last === date) return;
-    const days = db.prepare(`
-      SELECT COUNT(DISTINCT local_date) AS n FROM brush_sessions
-      WHERE profile_id = ? AND completed = 1 AND finished_at >= ? AND (? IS NULL OR local_date > ?)`)
-      .get(profileId, c.started_at, last, last).n;
-    if (days < settings.daysPerPiece) return;
+    // The test kid gets a piece every time, so parents can run through fast.
+    if (!isTest) {
+      const last = db.prepare(`
+        SELECT MAX(u.unlocked_on) AS d FROM unlocks u JOIN pieces p ON p.id = u.piece_id
+        WHERE u.profile_id = ? AND p.character_id = ?`).get(profileId, c.id).d;
+      if (last === date) return;
+      const days = db.prepare(`
+        SELECT COUNT(DISTINCT local_date) AS n FROM brush_sessions
+        WHERE profile_id = ? AND completed = 1 AND finished_at >= ? AND (? IS NULL OR local_date > ?)`)
+        .get(profileId, c.started_at, last, last).n;
+      if (days < settings.daysPerPiece) return;
+    }
     db.prepare('INSERT INTO unlocks (profile_id, piece_id, unlocked_on) VALUES (?, ?, ?)').run(profileId, next.id, date);
     db.prepare('UPDATE brush_sessions SET unlocked_piece_id = ? WHERE id = ?').run(next.id, session.lastInsertRowid);
     unlockedPiece = { id: next.id, name: next.name };
@@ -201,7 +204,7 @@ const clampInt = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) |
 // Profiles
 
 parent.get('/profiles', (req, res) => {
-  const rows = db.prepare('SELECT * FROM profiles ORDER BY is_parent, sort, id').all();
+  const rows = db.prepare('SELECT * FROM profiles WHERE is_test = 0 ORDER BY is_parent, sort, id').all();
   res.json(rows.map((p) => {
     const c = activeCharacter(p.id);
     return { ...toProfile(p), characterId: c?.id ?? null };
@@ -228,6 +231,26 @@ parent.put('/profiles/:id', (req, res) => {
 parent.delete('/profiles/:id', (req, res) => {
   db.prepare('DELETE FROM profiles WHERE id = ?').run(Number(req.params.id));
   res.json({ ok: true });
+});
+
+// A hidden "Test kid" that runs the real kid screens on a fresh start:
+// no pieces, no history, building the chosen character.
+parent.post('/test-kid', (req, res) => {
+  const characterId = Number(req.body.characterId);
+  characterRow(characterId);
+  const profile = db.transaction(() => {
+    let p = db.prepare('SELECT * FROM profiles WHERE is_test = 1').get();
+    if (!p) {
+      const id = db.prepare("INSERT INTO profiles (name, emoji, color, is_test) VALUES ('Test kid', '🧪', '#9b5de5', 1)").run().lastInsertRowid;
+      p = profileRow(id);
+    }
+    db.prepare('DELETE FROM unlocks WHERE profile_id = ?').run(p.id);
+    db.prepare('DELETE FROM brush_sessions WHERE profile_id = ?').run(p.id);
+    db.prepare('DELETE FROM profile_characters WHERE profile_id = ?').run(p.id);
+    db.prepare('INSERT INTO profile_characters (profile_id, character_id, active) VALUES (?, ?, 1)').run(p.id, characterId);
+    return p;
+  })();
+  res.json(toProfile(profile));
 });
 
 parent.put('/profiles/:id/character', (req, res) => {
@@ -368,7 +391,7 @@ parent.get('/brush-sessions', (req, res) => {
     SELECT s.*, pr.name AS profile_name, pc.name AS piece_name FROM brush_sessions s
     JOIN profiles pr ON pr.id = s.profile_id
     LEFT JOIN pieces pc ON pc.id = s.unlocked_piece_id
-    WHERE (? IS NULL OR s.profile_id = ?)
+    WHERE pr.is_test = 0 AND (? IS NULL OR s.profile_id = ?)
     ORDER BY s.id DESC LIMIT 200`).all(req.query.profileId ?? null, req.query.profileId ?? null);
   res.json(rows.map((s) => ({
     id: s.id, profileId: s.profile_id, profileName: s.profile_name, date: s.local_date, finishedAt: s.finished_at,

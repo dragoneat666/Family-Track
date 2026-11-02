@@ -35,7 +35,9 @@ export default function Brush({ profile, testMode = false, onExit }) {
   const mainMs = (settings?.mainSeconds ?? 120) * 1000;
   const frontMs = (settings?.frontSeconds ?? 15) * 1000;
   const totalMs = mainMs + frontMs;
-  const showInfo = testMode || settings?.showTrackingInfo;
+  // Parents trying things out (test mode or the test kid) get the numbers and a skip button.
+  const practice = testMode || !!profile?.isTest;
+  const showInfo = practice || settings?.showTrackingInfo;
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +65,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
           onUpdate: (st) => {
             statusRef.current = st;
             setStatus(st);
-            drawOverlay(overlayRef.current, st, testMode || s.showTrackingInfo);
+            drawOverlay(overlayRef.current, st, testMode || !!profile?.isTest || s.showTrackingInfo);
           }
         });
         if (cancelled) return;
@@ -141,7 +143,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
   }
 
   function stopEarly() {
-    if (testMode || window.confirm('Stop brushing? You need to finish to earn a piece.')) finish(false);
+    if (practice || window.confirm('Stop brushing? You need to finish to earn a piece.')) finish(false);
   }
 
   function skipAhead() {
@@ -192,6 +194,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
 
       <div className="brush-side">
         {testMode && <div className="test-banner">Test mode — nothing is saved</div>}
+        {profile?.isTest && <div className="test-banner">Test kid — a new piece every time</div>}
         <div className="time">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}</div>
         <MouthMap zone={zone.key} />
         <div className="zone-label">
@@ -205,7 +208,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
           </div>
         )}
         <div className="brush-buttons">
-          {testMode && <button className="btn" onClick={skipAhead}>Skip 30 s</button>}
+          {practice && <button className="btn" onClick={skipAhead}>Skip 30 s</button>}
           <button className="btn link" onClick={stopEarly}>Stop</button>
         </div>
       </div>

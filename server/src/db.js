@@ -105,7 +105,9 @@ const MIGRATIONS = [
     unlocked_piece_id INTEGER REFERENCES pieces(id) ON DELETE SET NULL
   );
   CREATE INDEX brush_sessions_profile ON brush_sessions(profile_id, local_date);
-  `
+  `,
+  // The hidden "Test kid" parents use to try the whole kid flow.
+  `ALTER TABLE profiles ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;`
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;
