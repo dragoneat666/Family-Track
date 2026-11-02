@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, getSettings, setSettings } from './db.js';
-import { PORT, TMP_DIR, today } from './config.js';
+import { PORT, TMP_DIR, APK_DIR, today } from './config.js';
 import {
   isSetUp, setPin, checkPin, registerDevice, openParentSession,
   requireDevice, requireParent, httpError
@@ -48,7 +48,45 @@ app.post('/api/devices/register', (req, res) => {
   res.json({ token: registerDevice(req.body.deviceName) });
 });
 
+// ---------- Android app download ----------
+// Open http://<server>:14200/download on a tablet's browser to install the
+// app. No sign-in: the app itself holds nothing private.
+
+function apkInfo() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(APK_DIR, 'version.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+app.get('/download', (req, res) => {
+  const info = apkInfo();
+  res.type('html').send(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Family Track for Android</title>
+<style>body{font-family:system-ui,sans-serif;background:#f4f7ff;color:#1d2440;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:16px}
+.card{background:#fff;border-radius:18px;padding:28px;max-width:420px;box-shadow:0 4px 18px rgba(30,50,120,.08)}
+h1{color:#4f8cff;margin-top:0}a.btn{display:block;text-align:center;background:#4f8cff;color:#fff;padding:16px;border-radius:14px;font-weight:700;font-size:1.2rem;text-decoration:none}
+li{margin:6px 0}</style></head><body><div class="card"><h1>Family Track</h1>
+${info ? `<p>Android app, version ${info.versionName}</p><a class="btn" href="download/family-track.apk">Download the app</a>
+<ol><li>Tap the button, then open the downloaded file.</li><li>If Android asks, allow installing apps from this browser.</li>
+<li>Open Family Track and enter this server's address: <b>${escapeHtml(`${req.protocol}://${req.get('host')}`)}</b></li></ol>`
+    : '<p>The Android app hasn\'t been built yet.</p>'}
+</div></body></html>`);
+});
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+app.get('/download/family-track.apk', (req, res) => {
+  const file = path.join(APK_DIR, 'family-track.apk');
+  if (!fs.existsSync(file)) throw httpError(404, 'The app has not been built yet');
+  res.set('Cache-Control', 'no-store');
+  res.type('application/vnd.android.package-archive').download(file, 'family-track.apk');
+});
+
 app.use('/api', requireDevice);
+
+app.get('/api/app/latest', (req, res) => res.json(apkInfo() || {}));
 
 app.post('/api/parent/unlock', (req, res) => {
   checkPin(req.body.pin, req.ip);

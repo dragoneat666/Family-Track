@@ -102,6 +102,13 @@ input[type='checkbox'] { width: 22px; height: 22px; }
 .progress { display: block; height: 12px; background: var(--line); border-radius: 99px; overflow: hidden; width: 100%; }
 .progress i { display: block; height: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-2)); border-radius: 99px; transition: width 0.3s; }
 
+.update-banner {
+  display: block; text-align: center;
+  background: var(--good); color: #fff; font-weight: 800;
+  padding: 12px 16px; border-radius: 14px; text-decoration: none;
+}
+.parent-area > .update-banner { border-radius: 0; }
+
 /* ---------- profile picker ---------- */
 
 .profile-grid { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }

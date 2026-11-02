@@ -4,6 +4,8 @@ export const DATA_DIR = process.env.DATA_DIR || path.resolve('data');
 export const PORT = Number(process.env.PORT || 8080);
 export const ASSETS_DIR = path.join(DATA_DIR, 'characters');
 export const TMP_DIR = path.join(DATA_DIR, 'tmp');
+// The Android app build (family-track.apk + version.json) is dropped here.
+export const APK_DIR = path.join(DATA_DIR, 'apk');
 
 // Triangle budgets for what the tablets download. The kids' tablets are slow,
 // so these stay modest; raise them if the tablets get upgraded.

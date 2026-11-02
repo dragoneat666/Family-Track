@@ -5,6 +5,7 @@ import CharactersTab from './CharactersTab.jsx';
 import BrushingTab from './BrushingTab.jsx';
 import TestTab from './TestTab.jsx';
 import DevicesTab from './DevicesTab.jsx';
+import UpdateBanner from '../../UpdateBanner.jsx';
 
 const TABS = [
   ['kids', 'Kids'],
@@ -27,6 +28,7 @@ export default function ParentArea({ onExit }) {
 
   return (
     <div className="parent-area">
+      <UpdateBanner />
       <header className="parent-header">
         <h1>Parents</h1>
         <button className="btn" onClick={onExit}>Done</button>

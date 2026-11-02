@@ -1,7 +1,10 @@
+import UpdateBanner from '../UpdateBanner.jsx';
+
 export default function ProfilePicker({ profiles, onPick, onParent }) {
   const kids = profiles.filter((p) => !p.isParent);
   return (
     <div className="center-screen">
+      <UpdateBanner />
       <h1 className="logo">Who's here?</h1>
       <div className="profile-grid">
         {kids.map((p) => (

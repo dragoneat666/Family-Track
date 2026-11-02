@@ -48,23 +48,37 @@ Settings by environment variable: `TZ` (when "today" starts),
 
 ## The Android app
 
-GitHub Actions builds the APK: **Actions → Android app → Run workflow**, then
-download `family-track-apk` from the run. Pushing a tag like `v0.1.0` also
-attaches it to a release. Install it on each device (allow "install unknown
-apps" for the browser or file manager you open it with).
+Install it from the server: open `http://<server>:14200/download` in the
+phone or tablet's browser, tap **Download the app**, and allow installing
+from the browser when Android asks. When a newer build is on the server, the
+app shows a green "update available" banner.
 
-### Signing key (do this once, keep it forever)
+Android only installs updates signed with the same key, so pick one place to
+build releases and keep that key forever.
 
-Android only installs updates signed with the same key, so make one release
-key and store it as repository secrets. Without them the workflow builds a
-debug APK, which works for testing but can't be updated by a release build
-later without uninstalling.
+### Building on the server (recommended)
+
+`tools/android` is a Docker build environment (Android SDK 36, JDK 21, Node).
+It needs a folder with `family-track.keystore` and `signing.env`
+(`KEYSTORE_PASSWORD=…`, `KEY_ALIAS=family-track`, `KEY_PASSWORD=…`), and
+writes `family-track.apk` + `version.json` to the server's `data/apk` folder:
 
 ```
-docker run --rm -it -v "$PWD:/out" eclipse-temurin:21 keytool -genkeypair -v -keystore /out/family-track.keystore -alias family-track -keyalg RSA -keysize 4096 -validity 36500
+docker build -t family-track-android tools/android
+docker run --rm -v "$PWD:/src:ro" -v /path/to/signing:/signing:ro -v /path/to/data/apk:/out -e VERSION_CODE=1 -e VERSION_NAME=0.1.1 family-track-android
 ```
 
-Then add these secrets under **Settings → Secrets and variables → Actions**:
+Raise `VERSION_CODE` on every build. Make the key once with:
+
+```
+docker run --rm -it -v /path/to/signing:/out eclipse-temurin:21 keytool -genkeypair -v -keystore /out/family-track.keystore -alias family-track -keyalg RSA -keysize 4096 -validity 36500
+```
+
+### Building on GitHub (alternative)
+
+**Actions → Android app → Run workflow**, then download `family-track-apk`
+from the run (a `v*` tag also attaches it to a release). It signs with these
+repository secrets, or makes a debug APK without them:
 
 | Secret | Value |
 |---|---|
@@ -73,7 +87,8 @@ Then add these secrets under **Settings → Secrets and variables → Actions**:
 | `ANDROID_KEY_ALIAS` | `family-track` |
 | `ANDROID_KEY_PASSWORD` | the key password (same as the keystore password if you pressed Enter) |
 
-Keep the keystore file somewhere safe (a password manager) and out of git.
+Either way, keep the keystore and its password somewhere safe (a password
+manager) and out of git.
 
 ## Adding characters
 
