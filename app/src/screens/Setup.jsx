@@ -1,46 +1,24 @@
-import { useEffect, useState } from 'react';
-import { api, isNative } from '../api.js';
+import { useState } from 'react';
+import { api } from '../api.js';
 
-// First launch on a device: point it at the server and prove it's a parent
-// setting it up (or create the parent PIN if the server is brand new).
-export default function Setup({ onDone }) {
+// App only: which server to talk to.
+export function ServerAddress({ onDone }) {
   const [server, setServer] = useState(api.serverUrl);
-  const [status, setStatus] = useState(null); // { setUp } once the server answers
-  const [pin, setPin] = useState('');
-  const [pin2, setPin2] = useState('');
-  const [deviceName, setDeviceName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  async function check() {
-    setError('');
-    setBusy(true);
-    try {
-      if (isNative) api.setServerUrl(server.trim());
-      setStatus(await api.get('/api/status'));
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!isNative) check();
-  }, []);
-
-  async function submit(e) {
+  async function connect(e) {
     e.preventDefault();
     setError('');
-    if (!status.setUp && pin !== pin2) return setError("The PINs don't match");
     setBusy(true);
+    const before = api.serverUrl;
     try {
-      const body = { pin, deviceName: deviceName || 'Device' };
-      const { token } = await api.post(status.setUp ? '/api/devices/register' : '/api/setup', body);
-      api.setToken(token);
+      api.setServerUrl(server.trim());
+      await api.get('/api/status');
       onDone();
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      api.setServerUrl(before);
+      setError(err.message);
     } finally {
       setBusy(false);
     }
@@ -48,40 +26,61 @@ export default function Setup({ onDone }) {
 
   return (
     <div className="center-screen">
-      <div className="card narrow">
+      <form className="card narrow" onSubmit={connect}>
         <h1 className="logo">Family Track</h1>
-        {!status ? (
-          <>
-            <p>Which server should this device use?</p>
-            {isNative && (
-              <label>Server address
-                <input value={server} onChange={(e) => setServer(e.target.value)} inputMode="url" autoCapitalize="off"
-                  placeholder="http://<server IP>:14200" />
-              </label>
-            )}
-            <button className="btn primary" disabled={busy || (isNative && !server.trim())} onClick={check}>{busy ? 'Checking…' : 'Connect'}</button>
-          </>
-        ) : (
-          <form onSubmit={submit}>
-            <p>{status.setUp
-              ? 'Enter the parent PIN to add this device.'
-              : 'New server! Pick a parent PIN (4–8 digits). Kids should not know it.'}</p>
-            <label>Name for this device
-              <input value={deviceName} onChange={(e) => setDeviceName(e.target.value)} placeholder="e.g. Kid's tablet" />
-            </label>
-            <label>Parent PIN
-              <input type="password" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="off" />
-            </label>
-            {!status.setUp && (
-              <label>PIN again
-                <input type="password" inputMode="numeric" value={pin2} onChange={(e) => setPin2(e.target.value)} autoComplete="off" />
-              </label>
-            )}
-            <button className="btn primary" disabled={busy || !pin}>{busy ? 'One sec…' : 'Set up'}</button>
-          </form>
-        )}
+        <p>Which server should this device use?</p>
+        <label>Server address
+          <input value={server} onChange={(e) => setServer(e.target.value)} inputMode="url" autoCapitalize="off"
+            placeholder="http://<server IP>:14200" />
+        </label>
+        <button className="btn primary" disabled={busy || !server.trim()}>{busy ? 'Checking…' : 'Connect'}</button>
         {error && <p className="error">{error}</p>}
-      </div>
+      </form>
+    </div>
+  );
+}
+
+// Brand-new server: make the first grown-up account.
+export function FirstAccount({ onDone }) {
+  const [name, setName] = useState('');
+  const [pin, setPin] = useState('');
+  const [pin2, setPin2] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    if (pin !== pin2) return setError("The PINs don't match");
+    setBusy(true);
+    try {
+      const r = await api.post('/api/setup', { name, pin, deviceName: 'First device' });
+      api.setToken(r.token);
+      onDone(r.account);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="center-screen">
+      <form className="card narrow" onSubmit={submit}>
+        <h1 className="logo">Family Track</h1>
+        <p>Welcome! First, make your own grown-up account. You can add everyone else after.</p>
+        <label>Your name
+          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        </label>
+        <label>Pick a PIN (4–8 digits)
+          <input type="password" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="new-password" />
+        </label>
+        <label>PIN again
+          <input type="password" inputMode="numeric" value={pin2} onChange={(e) => setPin2(e.target.value)} autoComplete="new-password" />
+        </label>
+        <button className="btn primary" disabled={busy || !name.trim() || !pin}>{busy ? 'One sec…' : 'Create my account'}</button>
+        {error && <p className="error">{error}</p>}
+      </form>
     </div>
   );
 }

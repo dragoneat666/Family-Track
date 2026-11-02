@@ -4,8 +4,8 @@ import { useParentCall } from './useParentCall.js';
 
 // Add characters by uploading the .glb files. The server shrinks them for
 // the tablets, so the big originals are fine to upload.
-export default function CharactersTab({ onLocked }) {
-  const { error, setError, call } = useParentCall(onLocked);
+export default function CharactersTab({ onAuthLost }) {
+  const { error, setError, call } = useParentCall(onAuthLost);
   const [list, setList] = useState([]);
   const [editing, setEditing] = useState(null);
   const [progress, setProgress] = useState(null);

@@ -5,29 +5,24 @@ import { Capacitor } from '@capacitor/core';
 export const isNative = Capacitor.isNativePlatform();
 const DEFAULT_SERVER = '';
 
+// Browsers only allow the camera on secure pages; over plain http on the
+// private network that means brushing works in the Android app only.
+export const canUseCamera = isNative || (window.isSecureContext && !!navigator.mediaDevices?.getUserMedia);
+
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* private mode */ } }
 };
-
-let parentToken = null;
 
 export const api = {
   get serverUrl() { return isNative ? (store.get('ft.server') || DEFAULT_SERVER) : ''; },
   setServerUrl(url) { store.set('ft.server', url.replace(/\/+$/, '')); },
   get token() { return store.get('ft.token'); },
   setToken(t) { store.set('ft.token', t); },
-  get lastProfile() { return Number(store.get('ft.profile')) || null; },
-  setLastProfile(id) { store.set('ft.profile', id ? String(id) : null); },
-  get parentUnlocked() { return !!parentToken; },
-  lockParent() { parentToken = null; },
 
   url(path) { return this.serverUrl + path; },
   authHeaders() {
-    const h = {};
-    if (this.token) h.Authorization = `Bearer ${this.token}`;
-    if (parentToken) h['X-Parent-Token'] = parentToken;
-    return h;
+    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
   },
 
   async request(method, path, body) {
@@ -42,10 +37,7 @@ export const api = {
       throw new ApiError("Can't reach the server. Is NetBird connected?", 0);
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      if (data.parentLocked) parentToken = null;
-      throw new ApiError(data.error || `Server error ${res.status}`, res.status, data);
-    }
+    if (!res.ok) throw new ApiError(data.error || `Server error ${res.status}`, res.status, data);
     return data;
   },
   get(path) { return this.request('GET', path); },
@@ -53,9 +45,12 @@ export const api = {
   put(path, body = {}) { return this.request('PUT', path, body); },
   del(path) { return this.request('DELETE', path); },
 
-  async unlockParent(pin) {
-    const { parentToken: t } = await this.post('/api/parent/unlock', { pin });
-    parentToken = t;
+  // Sign this device in as an account (or switch). Keeps the device's token
+  // if it already has one; the server just moves it to the new account.
+  async signIn(body) {
+    const r = await this.post('/api/sign-in', { deviceName: defaultDeviceName(), ...body });
+    if (r.token) this.setToken(r.token);
+    return r.account;
   },
 
   // Multipart upload with progress (fetch can't report upload progress).
@@ -76,6 +71,11 @@ export const api = {
     });
   }
 };
+
+function defaultDeviceName() {
+  if (!isNative) return 'Web browser';
+  return /tablet|ipad/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) >= 600 ? 'Android tablet' : 'Android phone';
+}
 
 export class ApiError extends Error {
   constructor(message, status, data) {

@@ -107,7 +107,18 @@ const MIGRATIONS = [
   CREATE INDEX brush_sessions_profile ON brush_sessions(profile_id, local_date);
   `,
   // The hidden "Test kid" parents use to try the whole kid flow.
-  `ALTER TABLE profiles ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;`
+  `ALTER TABLE profiles ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;`,
+  // Accounts: grown-ups (is_parent = 1) each get their own PIN, and every
+  // device remembers which account is signed in on it. The old shared parent
+  // PIN becomes a grown-up account called "Parent" (rename it in the app).
+  `
+  ALTER TABLE profiles ADD COLUMN pin_hash TEXT;
+  ALTER TABLE devices ADD COLUMN profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL;
+  INSERT INTO profiles (name, emoji, color, is_parent, pin_hash)
+    SELECT 'Parent', '🧑', '#2ec27e', 1, value FROM settings
+    WHERE key = 'parent_pin' AND NOT EXISTS (SELECT 1 FROM profiles WHERE is_parent = 1 AND is_test = 0);
+  DELETE FROM settings WHERE key = 'parent_pin';
+  `
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;
@@ -144,12 +155,4 @@ export function setSettings(patch) {
     }
   })();
   return getSettings();
-}
-
-export function getSecret(key) {
-  return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
-}
-
-export function setSecret(key, value) {
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
 }

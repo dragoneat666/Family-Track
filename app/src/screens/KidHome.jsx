@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api.js';
+import { api, canUseCamera } from '../api.js';
 import { preloadTracker } from '../brush/tracker.js';
+import UpdateBanner from '../UpdateBanner.jsx';
 
-export default function KidHome({ profile, onBrush, onBuild, onSwitch }) {
+export default function KidHome({ profile, onBrush, onBuild, onSettings }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    preloadTracker();
+    if (canUseCamera) preloadTracker();
     api.get(`/api/kids/${profile.id}/state`).then(setState).catch((e) => setError(e.message));
   }, [profile.id]);
 
@@ -18,9 +19,11 @@ export default function KidHome({ profile, onBrush, onBuild, onSwitch }) {
 
   return (
     <div className="kid-home" style={{ '--c': profile.color }}>
+      <UpdateBanner />
       <header className="kid-header">
-        <button className="avatar" onClick={onSwitch} title="Switch person">{profile.emoji}</button>
+        <span className="avatar">{profile.emoji}</span>
         <h1>Hi {profile.name}!</h1>
+        <button className="btn gear" onClick={onSettings} title="Settings">⚙️</button>
       </header>
 
       {error && <p className="error">{error}</p>}

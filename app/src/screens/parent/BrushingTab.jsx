@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api.js';
 import { useParentCall } from './useParentCall.js';
 
-export default function BrushingTab({ onLocked }) {
-  const { error, call } = useParentCall(onLocked);
+export default function BrushingTab({ onAuthLost }) {
+  const { error, call } = useParentCall(onAuthLost);
   const [settings, setSettings] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [saved, setSaved] = useState(false);

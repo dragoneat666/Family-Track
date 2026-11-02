@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { db, getSettings, setSettings } from './db.js';
 import { PORT, TMP_DIR, APK_DIR, today } from './config.js';
 import {
-  isSetUp, setPin, checkPin, registerDevice, openParentSession,
-  requireDevice, requireParent, httpError
+  hasAdults, hashPin, validPin, checkAccountPin, checkAnyAdultPin, createDevice,
+  optionalDevice, requireAccount, requireAdult, httpError
 } from './auth.js';
 import { buildCharacterModel, processRigged, processDance, characterDir, niceName } from './assets.js';
 
@@ -20,7 +20,7 @@ app.use(express.json({ limit: '1mb' }));
 // server over NetBird, so allow cross-origin requests. Auth is by header token.
 app.use('/api', (req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Headers', 'Authorization, X-Parent-Token, Content-Type');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -33,19 +33,56 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /\.glb$/i.test(file.originalname))
 });
 
-// ---------- setup & sign-in ----------
+// ---------- accounts & sign-in ----------
 
-app.get('/api/status', (req, res) => res.json({ setUp: isSetUp(), version: VERSION }));
+const profileRow = (id) => {
+  const p = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id);
+  if (!p) throw httpError(404, 'No such account');
+  return p;
+};
+const toProfile = (p) => ({
+  id: p.id, name: p.name, emoji: p.emoji, color: p.color,
+  isParent: !!p.is_parent, isTest: !!p.is_test, needsPin: !!p.is_parent && !p.pin_hash
+});
+const cleanName = (name, fallback) => String(name ?? '').trim().slice(0, 40) || fallback;
 
-app.post('/api/setup', (req, res) => {
-  if (isSetUp()) throw httpError(409, 'Already set up');
-  setPin(req.body.pin);
-  res.json({ token: registerDevice(req.body.deviceName) });
+app.get('/api/status', (req, res) => res.json({ setUp: hasAdults(), version: VERSION }));
+
+// Who can sign in here: shown on the "Who are you?" screen.
+app.get('/api/accounts', (req, res) => {
+  res.json(db.prepare('SELECT * FROM profiles WHERE is_test = 0 ORDER BY is_parent DESC, sort, id').all().map(toProfile));
 });
 
-app.post('/api/devices/register', (req, res) => {
-  checkPin(req.body.pin, req.ip);
-  res.json({ token: registerDevice(req.body.deviceName) });
+// Brand-new server: create the first grown-up account and sign in.
+app.post('/api/setup', (req, res) => {
+  if (hasAdults()) throw httpError(409, 'Already set up');
+  const pin = validPin(req.body.pin);
+  const id = db.prepare('INSERT INTO profiles (name, emoji, color, is_parent, pin_hash) VALUES (?, ?, ?, 1, ?)')
+    .run(cleanName(req.body.name, 'Parent'), req.body.emoji || '🧑', req.body.color || '#2ec27e', hashPin(pin)).lastInsertRowid;
+  res.json({ token: createDevice(req.body.deviceName, id), account: toProfile(profileRow(id)) });
+});
+
+// Sign in (or switch) this device to an account. Rules are in auth.js.
+app.post('/api/sign-in', optionalDevice, (req, res) => {
+  const target = profileRow(Number(req.body.profileId));
+  if (target.is_test) throw httpError(400, 'That account is only for testing');
+  if (target.is_parent) {
+    if (target.pin_hash) {
+      checkAccountPin(target, req.body.pin, req.ip);
+    } else {
+      // A grown-up account made without a PIN: its owner picks one now.
+      db.prepare('UPDATE profiles SET pin_hash = ? WHERE id = ?').run(hashPin(validPin(req.body.newPin)), target.id);
+    }
+  } else if (!(req.account?.is_parent && !req.account.is_test)) {
+    checkAnyAdultPin(req.body.pin, req.ip);
+  }
+  let token = null;
+  if (req.device) {
+    db.prepare("UPDATE devices SET profile_id = ?, last_seen_at = datetime('now') WHERE id = ?").run(target.id, req.device.id);
+  } else {
+    token = createDevice(req.body.deviceName, target.id);
+  }
+  res.json({ token, account: toProfile(profileRow(target.id)) });
 });
 
 // ---------- Android app download ----------
@@ -84,29 +121,39 @@ app.get('/download/family-track.apk', (req, res) => {
   res.type('application/vnd.android.package-archive').download(file, 'family-track.apk');
 });
 
-app.use('/api', requireDevice);
-
 app.get('/api/app/latest', (req, res) => res.json(apkInfo() || {}));
 
-app.post('/api/parent/unlock', (req, res) => {
-  checkPin(req.body.pin, req.ip);
-  res.json({ parentToken: openParentSession() });
+// Kept for app builds from before accounts existed, so they can still load
+// their first screen and show the "update available" banner.
+app.get('/api/profiles', optionalDevice, (req, res) => {
+  if (!req.device) throw httpError(401, 'This device is not signed in');
+  res.json(db.prepare('SELECT * FROM profiles WHERE is_test = 0 AND is_parent = 0 ORDER BY sort, id').all().map(toProfile));
 });
 
-// ---------- kid side ----------
+app.use('/api', requireAccount);
 
-const profileRow = (id) => {
-  const p = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id);
-  if (!p) throw httpError(404, 'No such profile');
-  return p;
-};
-const toProfile = (p) => ({ id: p.id, name: p.name, emoji: p.emoji, color: p.color, isParent: !!p.is_parent, isTest: !!p.is_test });
+app.get('/api/me', (req, res) => res.json({ account: toProfile(req.account), deviceName: req.device.name }));
 
-app.get('/api/profiles', (req, res) => {
-  res.json(db.prepare('SELECT * FROM profiles WHERE is_test = 0 ORDER BY is_parent, sort, id').all().map(toProfile));
+app.put('/api/me/device', (req, res) => {
+  db.prepare('UPDATE devices SET name = ? WHERE id = ?').run(cleanName(req.body.name, req.device.name), req.device.id);
+  res.json({ ok: true });
+});
+
+app.put('/api/me/pin', requireAdult, (req, res) => {
+  if (req.account.pin_hash) checkAccountPin(req.account, req.body.currentPin, req.ip);
+  db.prepare('UPDATE profiles SET pin_hash = ? WHERE id = ?').run(hashPin(validPin(req.body.newPin)), req.account.id);
+  res.json({ ok: true });
 });
 
 app.get('/api/settings', (req, res) => res.json(getSettings()));
+
+// ---------- kid side ----------
+
+// Kids only see their own things; grown-ups can look at any kid.
+app.use('/api/kids/:id', (req, res, next) => {
+  if (req.account.is_parent || req.account.id === Number(req.params.id)) return next();
+  res.status(403).json({ error: "That's someone else's" });
+});
 
 function activeCharacter(profileId) {
   return db.prepare(`
@@ -214,17 +261,28 @@ app.get('/api/characters/:id/rigged.glb', (req, res) => sendAsset(res, path.join
 app.get('/api/characters/:id/dances/:danceId.glb', (req, res) =>
   sendAsset(res, path.join(characterDir(Number(req.params.id)), 'dances', `${Number(req.params.danceId)}.glb`)));
 
-// ---------- parent side ----------
+// ---------- grown-up side ----------
 
-app.use('/api/parent', requireParent);
+app.use('/api/parent', requireAdult);
 const parent = express.Router();
 app.use('/api/parent', parent);
 
-parent.get('/check', (req, res) => res.json({ ok: true }));
-
-parent.put('/pin', (req, res) => {
-  setPin(req.body.pin);
-  res.json({ ok: true });
+// Home for grown-ups: each kid's brushing today and build progress.
+parent.get('/overview', (req, res) => {
+  const kids = db.prepare('SELECT * FROM profiles WHERE is_parent = 0 AND is_test = 0 ORDER BY sort, id').all();
+  res.json(kids.map((k) => {
+    const s = kidState(k.id);
+    const last = db.prepare('SELECT local_date FROM brush_sessions WHERE profile_id = ? AND completed = 1 ORDER BY id DESC LIMIT 1').get(k.id);
+    const ch = s.character;
+    return {
+      profile: s.profile,
+      brushedToday: s.brushedToday,
+      lastBrushed: last?.local_date ?? null,
+      character: ch?.status === 'ready'
+        ? { name: ch.name, placed: ch.pieces.filter((p) => p.placed).length, unlocked: ch.pieces.filter((p) => p.unlocked).length, total: ch.pieces.length }
+        : ch ? { name: ch.name, status: ch.status } : null
+    };
+  }));
 });
 
 parent.put('/settings', (req, res) => {
@@ -239,35 +297,47 @@ parent.put('/settings', (req, res) => {
 });
 const clampInt = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || lo)));
 
-// Profiles
+// Accounts (stored as "profiles")
 
 parent.get('/profiles', (req, res) => {
-  const rows = db.prepare('SELECT * FROM profiles WHERE is_test = 0 ORDER BY is_parent, sort, id').all();
+  const rows = db.prepare('SELECT * FROM profiles WHERE is_test = 0 ORDER BY is_parent DESC, sort, id').all();
   res.json(rows.map((p) => {
     const c = activeCharacter(p.id);
-    return { ...toProfile(p), characterId: c?.id ?? null };
+    return { ...toProfile(p), characterId: c?.id ?? null, isMe: p.id === req.account.id };
   }));
 });
 
+// A grown-up account can get a PIN now, or none: then its owner picks one
+// the first time they sign in.
 parent.post('/profiles', (req, res) => {
-  const { name, emoji, color, isParent } = req.body;
+  const { name, emoji, color, isParent, pin } = req.body;
   if (!String(name || '').trim()) throw httpError(400, 'Name is required');
-  const r = db.prepare('INSERT INTO profiles (name, emoji, color, is_parent) VALUES (?, ?, ?, ?)')
-    .run(String(name).trim().slice(0, 40), emoji || '🙂', color || '#4f8cff', isParent ? 1 : 0);
+  const pinHash = isParent && pin ? hashPin(validPin(pin)) : null;
+  const r = db.prepare('INSERT INTO profiles (name, emoji, color, is_parent, pin_hash) VALUES (?, ?, ?, ?, ?)')
+    .run(cleanName(name, 'Someone'), emoji || '🙂', color || '#4f8cff', isParent ? 1 : 0, pinHash);
   res.json(toProfile(profileRow(r.lastInsertRowid)));
 });
 
 parent.put('/profiles/:id', (req, res) => {
   const p = profileRow(Number(req.params.id));
   const b = req.body;
-  db.prepare('UPDATE profiles SET name = ?, emoji = ?, color = ?, is_parent = ? WHERE id = ?').run(
-    String(b.name ?? p.name).trim().slice(0, 40) || p.name, b.emoji ?? p.emoji, b.color ?? p.color,
-    b.isParent == null ? p.is_parent : (b.isParent ? 1 : 0), p.id);
+  db.prepare('UPDATE profiles SET name = ?, emoji = ?, color = ? WHERE id = ?')
+    .run(cleanName(b.name, p.name), b.emoji ?? p.emoji, b.color ?? p.color, p.id);
   res.json(toProfile(profileRow(p.id)));
 });
 
+// Forgotten PIN: clear it, and the owner picks a new one at next sign-in.
+parent.post('/profiles/:id/reset-pin', (req, res) => {
+  const p = profileRow(Number(req.params.id));
+  if (!p.is_parent) throw httpError(400, 'Kid accounts have no PIN');
+  db.prepare('UPDATE profiles SET pin_hash = NULL WHERE id = ?').run(p.id);
+  res.json({ ok: true });
+});
+
 parent.delete('/profiles/:id', (req, res) => {
-  db.prepare('DELETE FROM profiles WHERE id = ?').run(Number(req.params.id));
+  const p = profileRow(Number(req.params.id));
+  if (p.id === req.account.id) throw httpError(400, "You can't delete the account you're signed in with");
+  db.prepare('DELETE FROM profiles WHERE id = ?').run(p.id);
   res.json({ ok: true });
 });
 
@@ -438,8 +508,10 @@ parent.get('/brush-sessions', (req, res) => {
 });
 
 parent.get('/devices', (req, res) => {
-  res.json(db.prepare('SELECT id, name, created_at AS createdAt, last_seen_at AS lastSeenAt FROM devices ORDER BY id').all()
-    .map((d) => ({ ...d, isThisDevice: d.id === req.deviceId })));
+  res.json(db.prepare(`
+    SELECT d.id, d.name, d.created_at AS createdAt, d.last_seen_at AS lastSeenAt, p.name AS accountName, p.emoji AS accountEmoji
+    FROM devices d LEFT JOIN profiles p ON p.id = d.profile_id ORDER BY d.id`).all()
+    .map((d) => ({ ...d, isThisDevice: d.id === req.device.id })));
 });
 
 parent.delete('/devices/:id', (req, res) => {

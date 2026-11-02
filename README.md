@@ -8,9 +8,14 @@ A family app for the house, starting with kids' tooth brushing:
 - **Building**: each day of finished brushing unlocks one piece of a 3D
   character. The kid drags it onto a faint outline and it snaps into place.
   When the whole character is built, it dances.
-- **Parents** (behind a PIN): add kids, upload characters, set the rules,
-  see the brushing history, and test brushing/building without saving
-  anything.
+- **Accounts**: grown-up and kid accounts. Each device asks "Who are you?"
+  once and remembers. Grown-ups sign in with their own PIN; signing in as a
+  kid, or switching away from a kid's account, needs any grown-up's PIN.
+  Switching is in Settings.
+- **Grown-ups**: a home page with each kid's day, accounts, characters,
+  brushing rules and history, devices, and test modes for brushing and
+  building that save nothing. Everything except brushing also works in a
+  browser (the web app is served by the server itself).
 
 Later: chores and allowance, shared lists, calendar, meal plans and recipes.
 

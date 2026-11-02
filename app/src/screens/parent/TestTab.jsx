@@ -6,8 +6,8 @@ import Build from '../Build.jsx';
 import KidHome from '../KidHome.jsx';
 
 // Try brushing and building without touching any kid's progress.
-export default function TestTab({ onLocked, show }) {
-  const { error, call } = useParentCall(onLocked);
+export default function TestTab({ onAuthLost, show }) {
+  const { error, call } = useParentCall(onAuthLost);
   const [characters, setCharacters] = useState([]);
   const [kidCharacter, setKidCharacter] = useState('');
 
@@ -84,7 +84,7 @@ function KidFlow({ profile, onExit }) {
         Test kid — a new piece after every brush
         <button className="btn small" onClick={onExit}>Back to parents</button>
       </div>
-      <KidHome profile={profile} onBrush={() => setScreen('brush')} onBuild={() => setScreen('build')} onSwitch={onExit} />
+      <KidHome profile={profile} onBrush={() => setScreen('brush')} onBuild={() => setScreen('build')} onSettings={onExit} />
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api.js';
+import { api, canUseCamera } from '../api.js';
 import { openCamera, startTracker } from '../brush/tracker.js';
 
 // The brushing session. The countdown only moves while the camera sees the
@@ -48,6 +48,9 @@ export default function Brush({ profile, testMode = false, onExit }) {
 
     (async () => {
       try {
+        if (!canUseCamera) {
+          throw new Error('Brushing uses the camera, so it only works in the Family Track app on a phone or tablet.');
+        }
         const s = await api.get('/api/settings');
         if (cancelled) return;
         setSettings(s);

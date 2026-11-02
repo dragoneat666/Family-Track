@@ -123,7 +123,35 @@ input[type='checkbox'] { width: 22px; height: 22px; }
 }
 .profile-tile:active { transform: translateY(4px); box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15); }
 .profile-emoji { font-size: 4.5rem; }
-.parent-link { margin-top: 20px; }
+.profile-grid.small .profile-tile { width: 130px; height: 140px; font-size: 1.2rem; border-radius: 22px; }
+.profile-grid.small .profile-emoji { font-size: 3rem; }
+.tile-note { font-size: 0.75rem; font-weight: 700; opacity: 0.9; }
+
+/* ---------- sign-in & settings ---------- */
+
+.pin-avatar {
+  width: 84px; height: 84px; border-radius: 50%; margin: 0 auto;
+  background: var(--c); display: flex; align-items: center; justify-content: center; font-size: 3rem;
+}
+.pin-title { text-align: center; font-weight: 700; font-size: 1.1rem; }
+.btn.gear { margin-left: auto; font-size: 1.4rem; padding: 6px 12px; }
+.settings-screen { min-height: 100%; }
+.settings-avatar {
+  width: 52px; height: 52px; border-radius: 50%; flex: 0 0 auto;
+  border: 3px solid var(--c, var(--brand)); background: #fff;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 1.8rem;
+}
+.segmented { display: inline-flex; border: 2px solid var(--line); border-radius: 12px; overflow: hidden; align-self: flex-start; }
+.segmented button { font: inherit; font-weight: 700; padding: 8px 16px; border: none; background: #fff; color: var(--muted); cursor: pointer; }
+.segmented button.on { background: var(--brand); color: #fff; }
+
+/* ---------- grown-up home ---------- */
+
+.overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.overview-card { display: flex; flex-direction: column; gap: 10px; border-top: 6px solid var(--c); }
+.overview-card h3 { margin: 0; }
+.overview-status { font-weight: 700; color: #c77a00; }
+.overview-status.good { color: var(--good); }
 
 /* ---------- kid home ---------- */
 
@@ -131,8 +159,9 @@ input[type='checkbox'] { width: 22px; height: 22px; }
 .kid-header { display: flex; align-items: center; gap: 14px; }
 .kid-header h1 { font-size: 2rem; margin: 0; }
 .avatar {
-  width: 64px; height: 64px; border-radius: 50%;
-  border: 4px solid var(--c); background: #fff; font-size: 2.2rem; cursor: pointer;
+  width: 64px; height: 64px; border-radius: 50%; flex: 0 0 auto;
+  border: 4px solid var(--c); background: #fff; font-size: 2.2rem;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .kid-actions { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
 .big-action {
