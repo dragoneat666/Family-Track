@@ -7,6 +7,7 @@ import KidHome from './screens/KidHome.jsx';
 import Brush from './screens/Brush.jsx';
 import Build from './screens/Build.jsx';
 import FamilyArea from './screens/parent/ParentArea.jsx';
+import Exercises from './exercises/Exercises.jsx';
 
 // server address (app only) -> first grown-up (new server) -> "Who are you?"
 // -> the signed-in account's home. The device remembers who's signed in;
@@ -99,5 +100,14 @@ function KidArea({ account, onSettings }) {
   const [screen, setScreen] = useState('home');
   if (screen === 'brush') return <Brush profile={account} onExit={(goBuild) => setScreen(goBuild ? 'build' : 'home')} />;
   if (screen === 'build') return <Build profile={account} onExit={() => setScreen('home')} />;
-  return <KidHome profile={account} onBrush={() => setScreen('brush')} onBuild={() => setScreen('build')} onSettings={onSettings} />;
+  if (screen === 'exercises') return <Exercises profile={account} onExit={() => setScreen('home')} />;
+  return (
+    <KidHome
+      profile={account}
+      onBrush={() => setScreen('brush')}
+      onBuild={() => setScreen('build')}
+      onExercises={() => setScreen('exercises')}
+      onSettings={onSettings}
+    />
+  );
 }

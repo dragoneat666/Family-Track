@@ -4,6 +4,7 @@ import AccountsTab from './AccountsTab.jsx';
 import CharactersTab from './CharactersTab.jsx';
 import BrushingTab from './BrushingTab.jsx';
 import TestTab from './TestTab.jsx';
+import ExercisesTab from './ExercisesTab.jsx';
 import DevicesTab from './DevicesTab.jsx';
 import UpdateBanner from '../../UpdateBanner.jsx';
 
@@ -12,6 +13,7 @@ const TABS = [
   ['accounts', 'Accounts'],
   ['characters', 'Characters'],
   ['brushing', 'Brushing'],
+  ['exercises', 'Exercises'],
   ['test', 'Test'],
   ['devices', 'Devices']
 ];
@@ -40,6 +42,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
         {tab === 'accounts' && <AccountsTab onAuthLost={onAuthLost} />}
         {tab === 'characters' && <CharactersTab onAuthLost={onAuthLost} />}
         {tab === 'brushing' && <BrushingTab onAuthLost={onAuthLost} />}
+        {tab === 'exercises' && <ExercisesTab show={setFullScreen} />}
         {tab === 'test' && <TestTab onAuthLost={onAuthLost} show={setFullScreen} />}
         {tab === 'devices' && <DevicesTab onAuthLost={onAuthLost} />}
       </main>

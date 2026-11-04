@@ -3,7 +3,7 @@ import { api, canUseCamera } from '../api.js';
 import { preloadTracker } from '../brush/tracker.js';
 import UpdateBanner from '../UpdateBanner.jsx';
 
-export default function KidHome({ profile, onBrush, onBuild, onSettings }) {
+export default function KidHome({ profile, onBrush, onBuild, onExercises, onSettings }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
 
@@ -50,6 +50,13 @@ export default function KidHome({ profile, onBrush, onBuild, onSettings }) {
               <span className="big-emoji">🧩</span>
               <span className="big-label">{c?.status === 'processing' ? 'Getting your build ready…' : 'Ask a grown-up to pick something to build'}</span>
             </div>
+          )}
+
+          {onExercises && (
+            <button className="big-action exercise" onClick={onExercises}>
+              <span className="big-emoji">🏃</span>
+              <span className="big-label">Exercises</span>
+            </button>
           )}
         </div>
       )}

@@ -5,6 +5,7 @@ import Brush from '../Brush.jsx';
 import Build from '../Build.jsx';
 import KidHome from '../KidHome.jsx';
 import TrackingCheck from './TrackingCheck.jsx';
+import Exercises from '../../exercises/Exercises.jsx';
 
 // Try brushing and building without touching any kid's progress.
 export default function TestTab({ onAuthLost, show }) {
@@ -111,13 +112,14 @@ function KidFlow({ profile, onExit }) {
   const [screen, setScreen] = useState('home');
   if (screen === 'brush') return <Brush profile={profile} onExit={(goBuild) => setScreen(goBuild ? 'build' : 'home')} />;
   if (screen === 'build') return <Build profile={profile} onExit={() => setScreen('home')} />;
+  if (screen === 'exercises') return <Exercises profile={profile} onExit={() => setScreen('home')} />;
   return (
     <>
       <div className="test-strip">
         Test kid — a new piece after every brush
         <button className="btn small" onClick={onExit}>Back to parents</button>
       </div>
-      <KidHome profile={profile} onBrush={() => setScreen('brush')} onBuild={() => setScreen('build')} onSettings={onExit} />
+      <KidHome profile={profile} onBrush={() => setScreen('brush')} onBuild={() => setScreen('build')} onExercises={() => setScreen('exercises')} onSettings={onExit} />
     </>
   );
 }

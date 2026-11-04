@@ -8,6 +8,9 @@ A family app for the house, starting with kids' tooth brushing:
 - **Building**: each finished brush (at least 6 hours after the last one, so
   morning and bedtime both count) unlocks one piece of a 3D character. The kid drags it onto a faint outline and it snaps into place.
   When the whole character is built, it dances.
+- **Exercises**: home exercises from an occupational therapist. First up is
+  a metronome: a steady tick to clap along to, faster or slower by 5 beats a
+  minute (each kid's speed is remembered on the device).
 - **Accounts**: grown-up and kid accounts. Each device asks "Who are you?"
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
