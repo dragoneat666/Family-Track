@@ -120,7 +120,27 @@ const MIGRATIONS = [
   DELETE FROM settings WHERE key = 'parent_pin';
   `,
   // Pieces a grown-up gave by hand (brushed, but the camera didn't count it).
-  `ALTER TABLE brush_sessions ADD COLUMN manual INTEGER NOT NULL DEFAULT 0;`
+  `ALTER TABLE brush_sessions ADD COLUMN manual INTEGER NOT NULL DEFAULT 0;`,
+  // Exercise coaches: a name, a voice effect and lines a grown-up recorded.
+  // Each kid picks a coach and has their own exercise settings.
+  `
+  CREATE TABLE coaches (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    emoji TEXT NOT NULL DEFAULT '🤖',
+    effect TEXT NOT NULL DEFAULT 'none',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE coach_lines (
+    coach_id INTEGER NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
+    line TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    seconds REAL NOT NULL,
+    PRIMARY KEY (coach_id, line)
+  );
+  ALTER TABLE profiles ADD COLUMN coach_id INTEGER REFERENCES coaches(id) ON DELETE SET NULL;
+  ALTER TABLE profiles ADD COLUMN exercise_settings TEXT;
+  `
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

@@ -8,9 +8,18 @@ A family app for the house, starting with kids' tooth brushing:
 - **Building**: each finished brush (at least 6 hours after the last one, so
   morning and bedtime both count) unlocks one piece of a 3D character. The kid drags it onto a faint outline and it snaps into place.
   When the whole character is built, it dances.
-- **Exercises**: home exercises from an occupational therapist. First up is
-  a metronome: a steady tick to clap along to, faster or slower by 5 beats a
-  minute (each kid's speed is remembered on the device).
+- **Exercises**: home exercises from an occupational therapist.
+  - *Metronome*: a steady tick to clap along to, faster or slower by 5 beats
+    a minute (each kid's speed is remembered on the device).
+  - *Hug & Starfish*: a 3D figure (built from simple shapes in code, no model
+    files) shows each move while a coach says it: arms on the chest, cross the
+    leg, sit up and hold while it counts, lie back as a starfish, then again
+    with the other arm on top. The wait, hold and number of rounds are set
+    per kid by a grown-up.
+  - *Coaches*: grown-ups record the lines in their own voice in the app (or
+    add audio files), pick an effect (robot, radio, giant, sparkly, echo) and
+    each kid picks their coach. Recordings are trimmed and evened out on the
+    phone and stored on the server only.
 - **Accounts**: grown-up and kid accounts. Each device asks "Who are you?"
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.

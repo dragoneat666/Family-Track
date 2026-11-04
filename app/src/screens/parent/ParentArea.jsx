@@ -42,7 +42,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
         {tab === 'accounts' && <AccountsTab onAuthLost={onAuthLost} />}
         {tab === 'characters' && <CharactersTab onAuthLost={onAuthLost} />}
         {tab === 'brushing' && <BrushingTab onAuthLost={onAuthLost} />}
-        {tab === 'exercises' && <ExercisesTab show={setFullScreen} />}
+        {tab === 'exercises' && <ExercisesTab onAuthLost={onAuthLost} show={setFullScreen} />}
         {tab === 'test' && <TestTab onAuthLost={onAuthLost} show={setFullScreen} />}
         {tab === 'devices' && <DevicesTab onAuthLost={onAuthLost} />}
       </main>

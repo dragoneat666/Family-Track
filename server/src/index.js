@@ -319,6 +319,67 @@ app.get('/api/characters/:id/rigged.glb', (req, res) => sendAsset(res, path.join
 app.get('/api/characters/:id/dances/:danceId.glb', (req, res) =>
   sendAsset(res, path.join(characterDir(Number(req.params.id)), 'dances', `${Number(req.params.danceId)}.glb`)));
 
+// ---------- exercises ----------
+// Coaches are voices for the exercises: a grown-up records each line, and the
+// app plays it with the coach's effect (robot, radio…). Recordings arrive as
+// small WAV files, already trimmed and evened out by the app.
+
+const coachDir = (id) => path.join(DATA_DIR, 'coaches', String(id));
+const LINE_KEY = /^[a-z0-9_]{1,40}$/;
+const EFFECTS = ['none', 'robot', 'radio', 'deep', 'high', 'echo'];
+const coachRow = (id) => {
+  const c = db.prepare('SELECT * FROM coaches WHERE id = ?').get(id);
+  if (!c) throw httpError(404, 'No such coach');
+  return c;
+};
+function coachDetail(c) {
+  const lines = {};
+  for (const l of db.prepare('SELECT line, version, seconds FROM coach_lines WHERE coach_id = ?').all(c.id)) {
+    lines[l.line] = { version: l.version, seconds: l.seconds };
+  }
+  return { id: c.id, name: c.name, emoji: c.emoji, effect: c.effect, lines };
+}
+
+app.get('/api/coaches', (req, res) => {
+  res.json(db.prepare('SELECT * FROM coaches ORDER BY id').all().map(coachDetail));
+});
+
+app.get('/api/coaches/:id/lines/:line.wav', (req, res) => {
+  const line = String(req.params.line);
+  if (!LINE_KEY.test(line)) throw httpError(404, 'File not found');
+  const file = path.join(coachDir(Number(req.params.id)), `${line}.wav`);
+  if (!fs.existsSync(file)) throw httpError(404, 'File not found');
+  res.set('Cache-Control', 'private, max-age=31536000, immutable');
+  res.type('audio/wav').sendFile(file);
+});
+
+// A kid's coach and exercise settings (hold times, speeds…). Kids may change
+// their own; grown-ups any kid's.
+const exerciseState = (p) => ({ coachId: p.coach_id ?? null, settings: safeJson(p.exercise_settings) });
+const safeJson = (s) => { try { return JSON.parse(s) || {}; } catch { return {}; } };
+
+app.get('/api/kids/:id/exercises', (req, res) => res.json(exerciseState(profileRow(Number(req.params.id)))));
+
+app.put('/api/kids/:id/exercises', (req, res) => {
+  const p = profileRow(Number(req.params.id));
+  const b = req.body || {};
+  if ('coachId' in b) {
+    const coachId = b.coachId == null ? null : coachRow(Number(b.coachId)).id;
+    db.prepare('UPDATE profiles SET coach_id = ? WHERE id = ?').run(coachId, p.id);
+  }
+  if (b.settings && typeof b.settings === 'object') {
+    // One small object per exercise, merged into what's there.
+    const settings = safeJson(p.exercise_settings);
+    for (const [key, value] of Object.entries(b.settings)) {
+      if (LINE_KEY.test(key) && value && typeof value === 'object') settings[key] = value;
+    }
+    const json = JSON.stringify(settings);
+    if (json.length > 20000) throw httpError(400, 'Too many settings');
+    db.prepare('UPDATE profiles SET exercise_settings = ? WHERE id = ?').run(json, p.id);
+  }
+  res.json(exerciseState(profileRow(p.id)));
+});
+
 // ---------- grown-up side ----------
 
 app.use('/api/parent', requireAdult);
@@ -587,6 +648,78 @@ parent.delete('/dances/:id', (req, res) => {
   }
   res.json({ ok: true });
 });
+
+// Coaches
+
+const audioUpload = multer({ dest: TMP_DIR, limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
+const coachFields = (b, c = {}) => ({
+  name: cleanName(b.name, c.name || 'Coach'),
+  emoji: String(b.emoji ?? c.emoji ?? '🤖').slice(0, 16) || '🤖',
+  effect: EFFECTS.includes(b.effect) ? b.effect : c.effect || 'none'
+});
+
+parent.post('/coaches', (req, res) => {
+  const f = coachFields(req.body || {});
+  const id = db.prepare('INSERT INTO coaches (name, emoji, effect) VALUES (?, ?, ?)').run(f.name, f.emoji, f.effect).lastInsertRowid;
+  res.json(coachDetail(coachRow(id)));
+});
+
+parent.put('/coaches/:id', (req, res) => {
+  const c = coachRow(Number(req.params.id));
+  const f = coachFields(req.body || {}, c);
+  db.prepare('UPDATE coaches SET name = ?, emoji = ?, effect = ? WHERE id = ?').run(f.name, f.emoji, f.effect, c.id);
+  res.json(coachDetail(coachRow(c.id)));
+});
+
+parent.delete('/coaches/:id', (req, res) => {
+  const c = coachRow(Number(req.params.id));
+  db.prepare('DELETE FROM coaches WHERE id = ?').run(c.id);
+  fs.rmSync(coachDir(c.id), { recursive: true, force: true });
+  res.json({ ok: true });
+});
+
+parent.put('/coaches/:id/lines/:line', audioUpload.single('audio'), (req, res) => {
+  const tmp = req.file?.path;
+  try {
+    const c = coachRow(Number(req.params.id));
+    const line = String(req.params.line);
+    if (!LINE_KEY.test(line)) throw httpError(400, 'Bad line name');
+    if (!tmp) throw httpError(400, 'No recording received');
+    const seconds = wavSeconds(tmp);
+    if (!seconds) throw httpError(400, 'That recording is not a WAV file');
+    moveFile(tmp, path.join(coachDir(c.id), `${line}.wav`));
+    db.prepare(`INSERT INTO coach_lines (coach_id, line, version, seconds) VALUES (?, ?, ?, ?)
+      ON CONFLICT(coach_id, line) DO UPDATE SET version = excluded.version, seconds = excluded.seconds`)
+      .run(c.id, line, newVersion(), seconds);
+    res.json(coachDetail(c));
+  } finally {
+    if (tmp) fs.rmSync(tmp, { force: true });
+  }
+});
+
+parent.delete('/coaches/:id/lines/:line', (req, res) => {
+  const c = coachRow(Number(req.params.id));
+  const line = String(req.params.line);
+  if (!LINE_KEY.test(line)) throw httpError(400, 'Bad line name');
+  db.prepare('DELETE FROM coach_lines WHERE coach_id = ? AND line = ?').run(c.id, line);
+  fs.rmSync(path.join(coachDir(c.id), `${line}.wav`), { force: true });
+  res.json(coachDetail(c));
+});
+
+// Length of a PCM WAV file in seconds, or 0 if it isn't one.
+function wavSeconds(file) {
+  const buf = fs.readFileSync(file);
+  if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return 0;
+  let byteRate = 0;
+  for (let at = 12; at + 8 <= buf.length;) {
+    const id = buf.toString('ascii', at, at + 4);
+    const size = buf.readUInt32LE(at + 4);
+    if (id === 'fmt ') byteRate = buf.readUInt32LE(at + 16);
+    if (id === 'data') return byteRate ? Math.round((Math.min(size, buf.length - at - 8) / byteRate) * 1000) / 1000 : 0;
+    at += 8 + size + (size % 2);
+  }
+  return 0;
+}
 
 // History & devices
 
