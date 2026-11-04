@@ -77,6 +77,13 @@ function defaultDeviceName() {
   return /tablet|ipad/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) >= 600 ? 'Android tablet' : 'Android phone';
 }
 
+// "3:45 PM", or "tomorrow 3:45 AM" when it isn't today.
+export function clock(iso) {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? time : `tomorrow ${time}`;
+}
+
 export class ApiError extends Error {
   constructor(message, status, data) {
     super(message);

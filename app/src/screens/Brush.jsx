@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, canUseCamera } from '../api.js';
+import { api, canUseCamera, clock } from '../api.js';
 import { openCamera, startTracker } from '../brush/tracker.js';
 import { drawOverlay } from '../brush/overlay.js';
 
@@ -263,8 +263,8 @@ function BrushResult({ result, testMode, onExit }) {
   let note = 'Great job!';
   if (c?.status === 'ready') {
     if (c.complete || !c.nextPiece) note = `You have all of ${c.name}'s pieces!`;
-    else if (c.unlockedToday) note = "You already got today's piece. A new one tomorrow!";
-    else note = 'Keep brushing every day to earn the next piece!';
+    else if (c.nextPieceAt) note = `Brush again after ${clock(c.nextPieceAt)} to earn the next piece!`;
+    else note = 'Keep brushing morning and night to earn the next piece!';
   }
   return (
     <div className="center-screen">

@@ -134,8 +134,11 @@ for (let v = current; v < MIGRATIONS.length; v++) {
 const DEFAULT_SETTINGS = {
   mainSeconds: 120,
   frontSeconds: 15,
-  // How many different days of finished brushing earn one new piece.
-  daysPerPiece: 1,
+  // How many finished brushes earn one new piece. A brush only counts if it's
+  // at least hoursBetween hours after the last one that counted, so morning
+  // and evening both count but brushing twice in a row doesn't.
+  brushesPerPiece: 1,
+  hoursBetween: 6,
   // 'low' | 'normal' | 'high' — how much movement counts as brushing.
   sensitivity: 'normal',
   showTrackingInfo: false

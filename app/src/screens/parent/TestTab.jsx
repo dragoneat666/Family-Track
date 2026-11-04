@@ -62,7 +62,7 @@ export default function TestTab({ onAuthLost, show }) {
         <h3>🧪 Act as the test kid</h3>
         <p className="muted">Use the app exactly like a kid would: brush, unlock a piece, build, dance. The test kid is invisible
           (not in any list or history) and keeps its progress between tries, so each brush adds to the same build. It gets a
-          piece after <b>every</b> finished brush instead of once a day, and shows the tracking numbers and a skip button.</p>
+          piece after <b>every</b> finished brush, with no wait in between, and shows the tracking numbers and a skip button.</p>
         <p className="small"><b>Test kid:</b> {progress}</p>
         {characters.length ? (
           <div className="row wrap">

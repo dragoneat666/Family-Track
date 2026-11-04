@@ -37,9 +37,14 @@ export default function BrushingTab({ onAuthLost }) {
           <label className="inline">Front teeth after (seconds)
             <input type="number" min="0" max="120" value={settings.frontSeconds} onChange={set('frontSeconds')} />
           </label>
-          <label className="inline">New piece every … days of brushing
-            <input type="number" min="1" max="14" value={settings.daysPerPiece} onChange={set('daysPerPiece')} />
+          <label className="inline">New piece every … brushes
+            <input type="number" min="1" max="28" value={settings.brushesPerPiece} onChange={set('brushesPerPiece')} />
           </label>
+          <label className="inline">Brushes must be at least … hours apart
+            <input type="number" min="0" max="24" value={settings.hoursBetween} onChange={set('hoursBetween')} />
+          </label>
+          <p className="muted small">A brush sooner than that after the last one still gets a “great job”, but doesn't count toward a piece.
+            With 1 brush and 6 hours, morning and bedtime brushing each earn a piece.</p>
           <label className="inline">How much movement counts as brushing
             <select value={settings.sensitivity} onChange={set('sensitivity')}>
               <option value="low">A lot (strict)</option>

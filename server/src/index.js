@@ -164,11 +164,12 @@ function activeCharacter(profileId) {
 
 function kidState(profileId) {
   const profile = toProfile(profileRow(profileId));
-  const brushedToday = !!db.prepare(
-    'SELECT 1 FROM brush_sessions WHERE profile_id = ? AND local_date = ? AND completed = 1').get(profileId, today());
+  const brushesToday = db.prepare(
+    'SELECT COUNT(*) AS n FROM brush_sessions WHERE profile_id = ? AND local_date = ? AND completed = 1').get(profileId, today()).n;
+  const brushedToday = brushesToday > 0;
   const c = activeCharacter(profileId);
   if (!c || c.status !== 'ready') {
-    return { profile, brushedToday, character: c ? { id: c.id, name: c.name, status: c.status } : null };
+    return { profile, brushedToday, brushesToday, character: c ? { id: c.id, name: c.name, status: c.status } : null };
   }
   const pieces = db.prepare(`
     SELECT p.id, p.name, p.node_name AS nodeName, u.unlocked_on AS unlockedOn, u.placed_at AS placedAt
@@ -177,17 +178,24 @@ function kidState(profileId) {
   const dances = c.has_rigged
     ? db.prepare("SELECT id, name FROM dances WHERE character_id = ? AND status = 'ready' ORDER BY id").all(c.id)
     : [];
-  const unlocked = pieces.filter((p) => p.unlockedOn);
+  const nextPiece = pieces.find((p) => !p.unlockedOn)?.name ?? null;
+  const settings = getSettings();
+  const waitUntil = nextPiece && !profile.isTest ? nextPieceAt(profileId, c, settings) : null;
   return {
     profile,
     brushedToday,
+    brushesToday,
     character: {
       id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version,
       hasRigged: !!c.has_rigged,
       pieces: pieces.map((p) => ({ id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt })),
       dances,
-      unlockedToday: unlocked.some((p) => p.unlockedOn === today()),
-      nextPiece: pieces.find((p) => !p.unlockedOn)?.name ?? null,
+      // Set while a recent piece or brush means the next brush can't earn one
+      // yet. unlockedToday is for app builds before 0.1.6.
+      nextPieceAt: waitUntil,
+      unlockedToday: !!waitUntil,
+      hoursBetween: settings.hoursBetween,
+      nextPiece,
       complete: pieces.length > 0 && pieces.every((p) => p.placedAt)
     }
   };
@@ -215,20 +223,8 @@ app.post('/api/kids/:id/brush', (req, res) => {
     if (!c || c.status !== 'ready') return;
     const next = nextLockedPiece(profileId, c.id);
     if (!next) return;
-    // Count days of finished brushing since the last piece (or since this
-    // character was started). One piece a day at most, whatever the setting.
     // The test kid gets a piece every time, so parents can run through fast.
-    if (!isTest) {
-      const last = db.prepare(`
-        SELECT MAX(u.unlocked_on) AS d FROM unlocks u JOIN pieces p ON p.id = u.piece_id
-        WHERE u.profile_id = ? AND p.character_id = ?`).get(profileId, c.id).d;
-      if (last === date) return;
-      const days = db.prepare(`
-        SELECT COUNT(DISTINCT local_date) AS n FROM brush_sessions
-        WHERE profile_id = ? AND completed = 1 AND finished_at >= ? AND (? IS NULL OR local_date > ?)`)
-        .get(profileId, c.started_at, last, last).n;
-      if (days < settings.daysPerPiece) return;
-    }
+    if (!isTest && brushProgress(profileId, c, settings).counted < settings.brushesPerPiece) return;
     db.prepare('INSERT INTO unlocks (profile_id, piece_id, unlocked_on) VALUES (?, ?, ?)').run(profileId, next.id, date);
     db.prepare('UPDATE brush_sessions SET unlocked_piece_id = ? WHERE id = ?').run(next.id, session.lastInsertRowid);
     unlockedPiece = { id: next.id, name: next.name };
@@ -236,6 +232,43 @@ app.post('/api/kids/:id/brush', (req, res) => {
 
   res.json({ completed, unlockedPiece, state: kidState(profileId) });
 });
+
+// Finished brushes that count toward the next piece of character c: walk the
+// brushes since the last piece (or since the character was started) and count
+// each one that's at least hoursBetween after the previous one that counted.
+// A piece given by a grown-up counts as a brush. Returns the count and when
+// the last counted brush (or piece) happened.
+const sqlTime = (s) => Date.parse(s.replace(' ', 'T') + 'Z');
+function brushProgress(profileId, c, settings) {
+  const gapMs = settings.hoursBetween * 3600e3;
+  const last = db.prepare(`
+    SELECT s.id, s.finished_at FROM brush_sessions s
+    JOIN pieces p ON p.id = s.unlocked_piece_id
+    JOIN unlocks u ON u.piece_id = s.unlocked_piece_id AND u.profile_id = s.profile_id
+    WHERE s.profile_id = ? AND p.character_id = ? ORDER BY s.id DESC LIMIT 1`).get(profileId, c.id);
+  const sessions = last
+    ? db.prepare('SELECT finished_at FROM brush_sessions WHERE profile_id = ? AND completed = 1 AND id > ? ORDER BY id').all(profileId, last.id)
+    : db.prepare('SELECT finished_at FROM brush_sessions WHERE profile_id = ? AND completed = 1 AND finished_at >= ? ORDER BY id').all(profileId, c.started_at);
+  let anchor = last ? sqlTime(last.finished_at) : null;
+  let counted = 0;
+  for (const s of sessions) {
+    const t = sqlTime(s.finished_at);
+    if (anchor == null || t - anchor >= gapMs) {
+      counted++;
+      anchor = t;
+    }
+  }
+  return { counted, anchor };
+}
+
+// When the next finished brush could earn a piece, if that's in the future
+// (a piece or a counted brush happened less than hoursBetween ago). ISO time.
+function nextPieceAt(profileId, c, settings) {
+  const { counted, anchor } = brushProgress(profileId, c, settings);
+  if (anchor == null || counted + 1 < settings.brushesPerPiece) return null;
+  const at = anchor + settings.hoursBetween * 3600e3;
+  return at > Date.now() ? new Date(at).toISOString() : null;
+}
 
 function nextLockedPiece(profileId, characterId) {
   return db.prepare(`
@@ -246,7 +279,7 @@ function nextLockedPiece(profileId, characterId) {
 
 // A grown-up gives the next piece by hand: the kid brushed, but the camera
 // didn't count it. Recorded as a finished brush marked "given by a grown-up",
-// so today counts as brushed and no second piece unlocks today.
+// so it counts as a brush and the usual hours-between wait starts from now.
 app.post('/api/parent/profiles/:id/give-piece', requireAdult, (req, res) => {
   const profileId = profileRow(Number(req.params.id)).id;
   const c = activeCharacter(profileId);
@@ -301,11 +334,12 @@ parent.get('/overview', (req, res) => {
     return {
       profile: s.profile,
       brushedToday: s.brushedToday,
+      brushesToday: s.brushesToday,
       lastBrushed: last?.local_date ?? null,
       character: ch?.status === 'ready'
         ? {
           name: ch.name, placed: ch.pieces.filter((p) => p.placed).length, unlocked: ch.pieces.filter((p) => p.unlocked).length,
-          total: ch.pieces.length, nextPiece: ch.nextPiece, unlockedToday: ch.unlockedToday
+          total: ch.pieces.length, nextPiece: ch.nextPiece, nextPieceAt: ch.nextPieceAt
         }
         : ch ? { name: ch.name, status: ch.status } : null
     };
@@ -330,7 +364,8 @@ parent.put('/settings', (req, res) => {
   const patch = {};
   if (b.mainSeconds != null) patch.mainSeconds = clampInt(b.mainSeconds, 30, 600);
   if (b.frontSeconds != null) patch.frontSeconds = clampInt(b.frontSeconds, 0, 120);
-  if (b.daysPerPiece != null) patch.daysPerPiece = clampInt(b.daysPerPiece, 1, 14);
+  if (b.brushesPerPiece != null) patch.brushesPerPiece = clampInt(b.brushesPerPiece, 1, 28);
+  if (b.hoursBetween != null) patch.hoursBetween = clampInt(b.hoursBetween, 0, 24);
   if (['low', 'normal', 'high'].includes(b.sensitivity)) patch.sensitivity = b.sensitivity;
   if (b.showTrackingInfo != null) patch.showTrackingInfo = !!b.showTrackingInfo;
   res.json(setSettings(patch));

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../api.js';
+import { api, clock } from '../../api.js';
 import { useParentCall } from './useParentCall.js';
 
 // Each kid at a glance: brushed today?, how far along their build is, and a
@@ -17,8 +17,8 @@ export default function OverviewTab({ onAuthLost }) {
 
   async function givePiece(k) {
     const c = k.character;
-    const extra = c.unlockedToday ? `\n\nThey already got a piece today; this gives one more.` : '';
-    if (!window.confirm(`Give ${k.profile.name} the next piece of ${c.name} (${c.nextPiece})?\n\nUse this when they brushed but the camera didn't count it. It also marks today as brushed.${extra}`)) return;
+    const extra = c.nextPieceAt ? `\n\nThey got a piece recently (brushing earns the next one after ${clock(c.nextPieceAt)}); this gives one more anyway.` : '';
+    if (!window.confirm(`Give ${k.profile.name} the next piece of ${c.name} (${c.nextPiece})?\n\nUse this when they brushed but the camera didn't count it. It counts as a brush, so the wait before the next piece starts now.${extra}`)) return;
     const r = await call(() => api.post(`/api/parent/profiles/${k.profile.id}/give-piece`));
     if (r) {
       setMsg(`${k.profile.name} got the ${r.piece.name}. It's waiting for them to build.`);
@@ -39,8 +39,11 @@ export default function OverviewTab({ onAuthLost }) {
               <h3>{k.profile.name}</h3>
             </div>
             <div className={k.brushedToday ? 'overview-status good' : 'overview-status'}>
-              {k.brushedToday ? '🪥 Brushed today ✓' : `🪥 Not brushed yet today${k.lastBrushed ? ` · last ${k.lastBrushed}` : ''}`}
+              {k.brushedToday
+                ? `🪥 Brushed today ✓${k.brushesToday > 1 ? ` (${k.brushesToday}×)` : ''}`
+                : `🪥 Not brushed yet today${k.lastBrushed ? ` · last ${k.lastBrushed}` : ''}`}
             </div>
+            {k.character?.nextPieceAt && <div className="muted small">Next piece from brushing after {clock(k.character.nextPieceAt)}</div>}
             {k.character?.total != null ? (
               <>
                 <div className="small">{k.character.name}: {k.character.placed} of {k.character.total} pieces placed
