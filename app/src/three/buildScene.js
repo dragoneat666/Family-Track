@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { loadDance } from './dance.js';
 
 // The build board. Every piece in build.glb already sits at its "home" (the
 // files were exported from the whole character), so:
@@ -322,10 +323,10 @@ export class BuildScene {
       holder.rotation.y = this.root.rotation.y;
       this.scene.add(holder);
       this.dancer = holder;
+      this.dancerModel = model;
       this.mixer = new THREE.AnimationMixer(model);
     }
-    const clip = (await loader.loadAsync(danceUrl)).animations[0];
-    if (!clip) throw new Error('That dance has no motion in it');
+    const clip = await loadDance(loader, danceUrl, this.dancerModel);
     this.root.visible = false;
     this.ghostRoot.visible = false;
     this.mixer.stopAllAction();

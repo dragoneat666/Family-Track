@@ -30,7 +30,8 @@ fs.mkdirSync(TMP_DIR, { recursive: true });
 const upload = multer({
   dest: TMP_DIR,
   limits: { fileSize: 600 * 1024 * 1024, files: 120 },
-  fileFilter: (req, file, cb) => cb(null, /\.glb$/i.test(file.originalname))
+  // Dances may also be Mixamo .fbx downloads; everything else is .glb.
+  fileFilter: (req, file, cb) => cb(null, (file.fieldname === 'dances' ? /\.(glb|fbx)$/i : /\.glb$/i).test(file.originalname))
 });
 
 // ---------- accounts & sign-in ----------
@@ -568,7 +569,7 @@ parent.post('/characters/:id/rigged', upload.single('rigged'), (req, res) => {
 
 parent.post('/characters/:id/dances', upload.array('dances', 60), (req, res) => {
   const c = characterRow(Number(req.params.id));
-  if (!req.files?.length) throw httpError(400, 'No .glb files received');
+  if (!req.files?.length) throw httpError(400, 'No .glb or .fbx files received');
   enqueue(danceJobs(c.id, req.files));
   res.status(202).json(characterDetail(characterRow(c.id)));
 });

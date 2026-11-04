@@ -1,4 +1,5 @@
-import { NodeIO, getBounds } from '@gltf-transform/core';
+import { NodeIO, Document, getBounds } from '@gltf-transform/core';
+import { Worker } from 'node:worker_threads';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { dedup, prune, weld, simplify, textureCompress, meshopt, mergeDocuments, unpartition } from '@gltf-transform/functions';
 import { MeshoptDecoder, MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
@@ -108,11 +109,49 @@ export async function processRigged(characterId, file) {
   return tris;
 }
 
+// FBX files start with "Kaydara FBX Binary" (or "; FBX" when saved as text).
+export function isFbx(file) {
+  const head = Buffer.alloc(20);
+  const fd = fs.openSync(file, 'r');
+  try { fs.readSync(fd, head, 0, 20, 0); } finally { fs.closeSync(fd); }
+  const text = head.toString('latin1');
+  return text.startsWith('Kaydara FBX') || text.startsWith('; FBX');
+}
+
+// An FBX animation (e.g. from Mixamo) as a glTF document: the skeleton's
+// nodes plus one animation, no meshes.
+function readFbxAnimation(file) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./fbx-worker.js', import.meta.url), { workerData: { file } });
+    worker.once('message', (msg) => {
+      worker.terminate();
+      if (msg.error) return reject(new Error(msg.error));
+      const doc = new Document();
+      const buffer = doc.createBuffer();
+      const scene = doc.createScene();
+      doc.getRoot().setDefaultScene(scene);
+      const nodes = msg.nodes.map((n) => doc.createNode(n.name).setTranslation(n.t).setRotation(n.r).setScale(n.s));
+      msg.nodes.forEach((n, i) => (n.parent >= 0 ? nodes[n.parent] : scene).addChild(nodes[i]));
+      const anim = doc.createAnimation(msg.name);
+      for (const t of msg.tracks) {
+        const input = doc.createAccessor().setType('SCALAR').setArray(t.times).setBuffer(buffer);
+        const output = doc.createAccessor().setType(t.path === 'rotation' ? 'VEC4' : 'VEC3').setArray(t.values).setBuffer(buffer);
+        const sampler = doc.createAnimationSampler().setInput(input).setOutput(output).setInterpolation('LINEAR');
+        anim.addSampler(sampler).addChannel(
+          doc.createAnimationChannel().setTargetNode(nodes[t.node]).setTargetPath(t.path).setSampler(sampler));
+      }
+      resolve(doc);
+    });
+    worker.once('error', reject);
+  });
+}
+
 // Keeps only the skeleton and its animation. The app plays it on rigged.glb
 // by matching bone names, so a dance from any file with the same rig works.
+// Takes .glb (Meshy) or .fbx (Mixamo "Without Skin" downloads).
 export async function processDance(characterId, danceId, file) {
   const io = await getIO();
-  const doc = await io.read(file);
+  const doc = isFbx(file) ? await readFbxAnimation(file) : await io.read(file);
   const root = doc.getRoot();
   const anims = root.listAnimations();
   if (!anims.length) throw new Error('This file has no animation in it');

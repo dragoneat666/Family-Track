@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api.js';
 import { useParentCall } from './useParentCall.js';
+import { DanceViewer } from '../../three/danceViewer.js';
 
 // Add characters by uploading the .glb files. The server shrinks them for
 // the tablets, so the big originals are fine to upload.
@@ -8,6 +9,7 @@ export default function CharactersTab({ onAuthLost }) {
   const { error, setError, call } = useParentCall(onAuthLost);
   const [list, setList] = useState([]);
   const [editing, setEditing] = useState(null);
+  const [watching, setWatching] = useState(null);
   const [progress, setProgress] = useState(null);
 
   async function load() {
@@ -53,8 +55,16 @@ export default function CharactersTab({ onAuthLost }) {
           {editing === c.id ? (
             <CharacterEditor character={c} call={call} upload={upload} onDone={() => { setEditing(null); load(); }} setError={setError} />
           ) : (
-            <button className="btn" onClick={() => setEditing(c.id)}>Edit</button>
+            <div className="row">
+              <button className="btn" onClick={() => setEditing(c.id)}>Edit</button>
+              {canWatch(c) && (
+                <button className="btn" onClick={() => setWatching(watching === c.id ? null : c.id)}>
+                  {watching === c.id ? 'Close dances' : '💃 Watch dances'}
+                </button>
+              )}
+            </div>
           )}
+          {watching === c.id && editing !== c.id && canWatch(c) && <DancePreview key={c.version} character={c} />}
         </div>
       ))}
 
@@ -65,6 +75,72 @@ export default function CharactersTab({ onAuthLost }) {
 
 function glbOnly(files) {
   return [...(files || [])].filter((f) => /\.glb$/i.test(f.name));
+}
+
+// Dances can also be Mixamo downloads (.fbx, "Without Skin").
+function danceFiles(files) {
+  return [...(files || [])].filter((f) => /\.(glb|fbx)$/i.test(f.name));
+}
+
+const canWatch = (c) => c.hasRigged && c.dances.some((d) => d.status === 'ready');
+
+// The dancing model playing its dances, exactly as the kids will see it.
+function DancePreview({ character }) {
+  const holder = useRef(null);
+  const viewer = useRef(null);
+  const [current, setCurrent] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [time, setTime] = useState(null);
+  const dances = character.dances.filter((d) => d.status === 'ready');
+
+  useEffect(() => {
+    const v = new DanceViewer(holder.current);
+    viewer.current = v;
+    let cancelled = false;
+    v.load(api.url(`/api/characters/${character.id}/rigged.glb?v=${character.version}`), api.authHeaders())
+      .then(() => { if (!cancelled) { setLoading(false); play(dances[0]); } })
+      .catch((e) => { if (!cancelled) { setError(e.message || 'The dancing model would not load.'); setLoading(false); } });
+    const t = setInterval(() => setTime(v.progress()), 250);
+    return () => { cancelled = true; clearInterval(t); v.destroy(); };
+  }, []);
+
+  async function play(d) {
+    setError('');
+    setCurrent(d.id);
+    try {
+      await viewer.current.play(api.url(`/api/characters/${character.id}/dances/${d.id}.glb?v=${character.version}`));
+    } catch (e) {
+      setError(e.message || 'That dance would not load.');
+      setCurrent(null);
+    }
+  }
+
+  function stop() {
+    viewer.current.stop();
+    setCurrent(null);
+  }
+
+  return (
+    <div className="stack">
+      <div className="dance-preview" ref={holder}>
+        {loading && <div className="dance-preview-note">Loading {character.name}…</div>}
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="row wrap">
+        {dances.map((d) => (
+          <button key={d.id} className={current === d.id ? 'btn primary small' : 'btn small'} onClick={() => play(d)} disabled={loading}>
+            {d.name}
+          </button>
+        ))}
+        <button className="btn small" onClick={stop} disabled={loading || current == null}>Stand still</button>
+      </div>
+      <p className="muted small">
+        {time ? `${time.time.toFixed(1)} of ${time.duration.toFixed(1)} s · ` : ''}
+        Swipe the picture to turn {character.name} around. Dances loop here; kids pick one with the 💃 button after the build is done.
+      </p>
+    </div>
+  );
 }
 
 function AddCharacter({ upload, setError }) {
@@ -85,7 +161,7 @@ function AddCharacter({ upload, setError }) {
     p.forEach((f) => form.append('pieces', f, f.name));
     const r = glbOnly(rigged.current.files)[0];
     if (r) form.append('rigged', r, r.name);
-    glbOnly(dances.current.files).forEach((f) => form.append('dances', f, f.name));
+    danceFiles(dances.current.files).forEach((f) => form.append('dances', f, f.name));
     if (await upload('POST', '/api/parent/characters', form)) {
       setName('');
       e.target.reset();
@@ -108,7 +184,7 @@ function AddCharacter({ upload, setError }) {
       <label>Dancing model (optional) — the rigged .glb
         <input type="file" ref={rigged} />
       </label>
-      <label>Dances (optional) — any number of animation .glb files for the same rig
+      <label>Dances (optional) — any number of animation files for the same rig: .glb, or Mixamo .fbx downloaded “Without Skin”
         <input type="file" multiple ref={dances} />
       </label>
       <p className="muted small">Pieces start out unlocking from the bottom up (feet first, head last). You can reorder them afterwards.</p>
@@ -143,8 +219,8 @@ function CharacterEditor({ character, call, upload, onDone, setError }) {
   }
 
   async function uploadFiles(ref, field, path, single) {
-    const files = glbOnly(ref.current.files);
-    if (!files.length) return setError('Pick a .glb file first');
+    const files = field === 'dances' ? danceFiles(ref.current.files) : glbOnly(ref.current.files);
+    if (!files.length) return setError(field === 'dances' ? 'Pick a .glb or .fbx file first' : 'Pick a .glb file first');
     const form = new FormData();
     (single ? files.slice(0, 1) : files).forEach((f) => form.append(field, f, f.name));
     if (await upload('POST', path, form)) onDone();
@@ -203,7 +279,7 @@ function CharacterEditor({ character, call, upload, onDone, setError }) {
         </button>
       </div>
 
-      <h4>Dances</h4>
+      <h4>Dances <span className="muted small">(.glb, or Mixamo .fbx “Without Skin”)</span></h4>
       <ul className="piece-list">
         {character.dances.map((d) => (
           <li key={d.id} className="row">
