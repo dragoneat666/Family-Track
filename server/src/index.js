@@ -163,14 +163,18 @@ function activeCharacter(profileId) {
     WHERE pc.profile_id = ? AND pc.active = 1`).get(profileId);
 }
 
+const PUZZLE_LEVELS = ['easy', 'medium', 'hard'];
+
 function kidState(profileId) {
-  const profile = toProfile(profileRow(profileId));
+  const row = profileRow(profileId);
+  const profile = toProfile(row);
+  const puzzleLevel = PUZZLE_LEVELS.includes(row.puzzle_level) ? row.puzzle_level : 'easy';
   const brushesToday = db.prepare(
     'SELECT COUNT(*) AS n FROM brush_sessions WHERE profile_id = ? AND local_date = ? AND completed = 1').get(profileId, today()).n;
   const brushedToday = brushesToday > 0;
   const c = activeCharacter(profileId);
   if (!c || c.status !== 'ready') {
-    return { profile, brushedToday, brushesToday, character: c ? { id: c.id, name: c.name, status: c.status } : null };
+    return { profile, brushedToday, brushesToday, puzzleLevel, character: c ? { id: c.id, name: c.name, status: c.status } : null };
   }
   const pieces = db.prepare(`
     SELECT p.id, p.name, p.node_name AS nodeName, u.unlocked_on AS unlockedOn, u.placed_at AS placedAt
@@ -186,6 +190,7 @@ function kidState(profileId) {
     profile,
     brushedToday,
     brushesToday,
+    puzzleLevel,
     character: {
       id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version,
       hasRigged: !!c.has_rigged,
@@ -203,6 +208,16 @@ function kidState(profileId) {
 }
 
 app.get('/api/kids/:id/state', (req, res) => res.json(kidState(Number(req.params.id))));
+
+// Kids change this themselves in Settings (no PIN).
+app.put('/api/kids/:id/puzzle', (req, res) => {
+  const level = String(req.body?.level ?? '');
+  if (!PUZZLE_LEVELS.includes(level)) return res.status(400).json({ error: 'Pick easy, medium or hard' });
+  const id = Number(req.params.id);
+  if (!profileRow(id) || profileRow(id).is_parent) return res.status(404).json({ error: 'No such kid' });
+  db.prepare('UPDATE profiles SET puzzle_level = ? WHERE id = ?').run(level, id);
+  res.json({ puzzleLevel: level });
+});
 
 app.post('/api/kids/:id/brush', (req, res) => {
   const profileId = Number(req.params.id);

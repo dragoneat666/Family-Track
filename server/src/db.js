@@ -140,7 +140,10 @@ const MIGRATIONS = [
   );
   ALTER TABLE profiles ADD COLUMN coach_id INTEGER REFERENCES coaches(id) ON DELETE SET NULL;
   ALTER TABLE profiles ADD COLUMN exercise_settings TEXT;
-  `
+  `,
+  // How hard building is: easy (outlines + snap), medium (no outlines, tap
+  // Check), hard (medium + turn the pieces). Each kid picks their own.
+  `ALTER TABLE profiles ADD COLUMN puzzle_level TEXT NOT NULL DEFAULT 'easy';`
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

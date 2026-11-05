@@ -7,19 +7,33 @@ import { loadDance } from './dance.js';
 // The build board. Every piece in build.glb already sits at its "home" (the
 // files were exported from the whole character), so:
 //  - placed pieces are drawn where they are,
-//  - pieces not placed yet show as a faint ghost so the kid sees the shape,
 //  - unlocked-but-unplaced pieces float in a tray and get dragged home.
+//
+// Levels (each kid picks one):
+//  - easy: pieces not placed yet show as a faint ghost, and a piece snaps in
+//    when it's dropped near its spot.
+//  - medium: no ghosts. A dropped piece stays where it was let go ("parked")
+//    until the kid taps Check. Close enough clicks in; otherwise it wiggles.
+//    Three misses on one piece flash its ghost for a moment.
+//  - hard: medium, plus pieces arrive turned and the kid turns them back with
+//    the arrows (quarter turns in the screen's plane).
+// The character's first piece always works like easy, so they know where to start.
 
 const GHOST_COLORS = { build: 0x8fc8ff, dress: 0xf6c4ff };
 const SNAP_FRACTION = 0.09; // how close (share of the screen) counts as "there"
 const TRAY_SLOTS = 4; // more waiting pieces than this queue up behind
+const QUARTER = Math.PI / 2;
+const HINT_AFTER = 3; // wrong checks on one piece before its outline flashes
+const HINT_SECONDS = 1.6;
 
 export class BuildScene {
-  constructor(container, { onPlace, onTrayChange } = {}) {
+  constructor(container, { onPlace, onTrayChange, onParkedChange, level = 'easy' } = {}) {
     this.container = container;
     this.onPlace = onPlace;
     this.onTrayChange = onTrayChange;
-    this.pieces = new Map(); // id -> { id, pivot, ghost, homeLocal, state }
+    this.onParkedChange = onParkedChange;
+    this.level = level;
+    this.pieces = new Map(); // id -> { id, pivot, ghost, homeLocal, state: locked|tray|parked|placed }
     this.anims = [];
     this.clock = new THREE.Clock();
 
@@ -100,10 +114,14 @@ export class BuildScene {
       pivot.position.copy(this.root.worldToLocal(center.clone()));
       this.root.add(pivot);
       pivot.attach(node);
-      this.pieces.set(p.id, {
+      const piece = {
         id: p.id, name: p.name, pivot, ghost, size: Math.max(size.x, size.y, 1e-6),
-        homeLocal: pivot.position.clone(), state: null, wobble: Math.random() * 6
-      });
+        homeLocal: pivot.position.clone(), state: null, wobble: Math.random() * 6,
+        turn: 0, angle: 0, misses: 0, hintUntil: 0, shakeAt: -1
+      };
+      if (!this.firstPiece) this.firstPiece = piece;
+      this.pieces.set(p.id, piece);
+      if (this.level === 'hard' && piece !== this.firstPiece && !p.placed) this.scramble(piece, node);
     }
 
     this.box = new THREE.Box3().setFromObject(this.root);
@@ -118,13 +136,13 @@ export class BuildScene {
       const piece = this.pieces.get(p.id);
       if (!piece) continue;
       const state = p.placed ? 'placed' : p.unlocked ? 'tray' : 'locked';
-      if (piece.state === state) continue;
+      if (piece.state === state || (piece.state === 'parked' && state === 'tray')) continue;
       if (piece.state === 'tray' || state === 'tray') trayChanged = true;
       piece.state = state;
       piece.pivot.visible = state !== 'locked';
-      piece.ghost.visible = state !== 'placed';
       if (state === 'placed') this.sendHome(piece, false);
     }
+    this.updateGhosts();
     if (trayChanged) {
       this.root.rotation.y = 0;
       this.layoutTray(false);
@@ -140,6 +158,101 @@ export class BuildScene {
   // The ones actually showing in the tray right now.
   shownTray() {
     return this.trayPieces().slice(0, TRAY_SLOTS);
+  }
+
+  // Dropped on the model but not checked yet (medium and hard).
+  parkedPieces() {
+    return [...this.pieces.values()].filter((p) => p.state === 'parked');
+  }
+
+  // Outline + snap for this piece? Always on easy, and for the first piece.
+  easyFor(piece) {
+    return this.level === 'easy' || piece === this.firstPiece;
+  }
+
+  updateGhosts(now = this.clock.elapsedTime) {
+    for (const piece of this.pieces.values()) {
+      const hint = piece.hintUntil > now;
+      piece.ghost.visible = piece.state !== 'placed' && (this.easyFor(piece) || hint);
+      if (piece.hinting !== hint) {
+        piece.hinting = hint;
+        this.highlight(piece, hint);
+      }
+    }
+  }
+
+  // Pick a starting turn that doesn't already look right (hard). A piece that
+  // looks the same turned (a ball, a square block) counts as right in those turns.
+  scramble(piece, node) {
+    const { queries, targets } = samplePoints(node, piece.pivot);
+    piece.okTurns = [0, ...[1, 2, 3].filter((k) => sameShape(queries, targets, k, piece.size))];
+    const wrong = [1, 2, 3].filter((k) => !piece.okTurns.includes(k));
+    piece.turn = wrong.length ? wrong[Math.floor(Math.random() * wrong.length)] : 0;
+    piece.angle = piece.turn * QUARTER;
+  }
+
+  turnedRight(piece) {
+    return !piece.okTurns || piece.okTurns.includes(((piece.turn % 4) + 4) % 4);
+  }
+
+  // The arrows turn the piece the kid touched last (or the next one waiting).
+  turn(dir) {
+    if (this.dancer) return;
+    let piece = this.selected;
+    if (!piece || (piece.state !== 'tray' && piece.state !== 'parked') || (piece.state === 'tray' && !this.shownTray().includes(piece))) {
+      piece = this.parkedPieces().at(-1) || this.shownTray()[0];
+    }
+    if (!piece || piece === this.firstPiece) return;
+    this.selected = piece;
+    piece.turn += dir;
+  }
+
+  // Medium/hard: snap every parked piece that's close enough (and turned
+  // right); wiggle the rest. Returns what happened so the screen can say so.
+  check() {
+    const result = { placed: 0, wrongSpot: 0, wrongTurn: 0 };
+    const now = this.clock.elapsedTime;
+    for (const piece of this.parkedPieces()) {
+      const near = this.nearHome(piece);
+      if (near && this.turnedRight(piece)) {
+        this.placePiece(piece);
+        result.placed++;
+      } else {
+        result[near ? 'wrongTurn' : 'wrongSpot']++;
+        piece.shakeAt = now;
+        piece.misses++;
+        if (piece.misses >= HINT_AFTER) piece.hintUntil = now + HINT_SECONDS;
+      }
+    }
+    this.updateGhosts(now);
+    this.onParkedChange?.(this.parkedPieces().length);
+    return result;
+  }
+
+  // Screen distance between where the piece is and where it belongs.
+  nearHome(piece) {
+    const at = this.root.localToWorld(piece.pivot.position.clone()).project(this.camera);
+    const home = this.root.localToWorld(piece.homeLocal.clone()).project(this.camera);
+    const w = this.container.clientWidth, h = this.container.clientHeight;
+    const dx = ((at.x - home.x) / 2) * w;
+    const dy = ((at.y - home.y) / 2) * h;
+    return Math.hypot(dx, dy) < Math.min(w, h) * SNAP_FRACTION + 20;
+  }
+
+  placePiece(piece) {
+    piece.state = 'placed';
+    piece.ghost.visible = false;
+    if (this.selected === piece) this.selected = null;
+    this.sendHome(piece, true, () => this.pop(piece));
+    this.layoutTray(true); // the next waiting piece slides in
+    this.onPlace?.(piece.id);
+    this.onTrayChange?.(this.trayPieces().map((p) => p.id));
+  }
+
+  // Let go over the tray (or barely moved): it goes back there.
+  overTray(e) {
+    const p = this.pointer(e);
+    return this.camera.aspect >= 1 ? p.x > 0.38 : p.y < -0.5;
   }
 
   resize() {
@@ -214,6 +327,8 @@ export class BuildScene {
 
   sendHome(piece, animate, done) {
     piece.pivot.rotation.set(0, 0, 0);
+    piece.turn = 0;
+    piece.angle = 0;
     this.moveTo(piece, piece.homeLocal, 1, animate, done);
   }
 
@@ -224,18 +339,24 @@ export class BuildScene {
 
   pointerDown(e) {
     this.raycaster.setFromCamera(this.pointer(e), this.camera);
-    for (const piece of this.dancer ? [] : this.shownTray()) {
-      if (this.raycaster.intersectObject(piece.pivot, true).length) {
-        this.dragging = { piece, pointerId: e.pointerId };
-        this.renderer.domElement.setPointerCapture(e.pointerId);
-        this.anims = this.anims.filter((a) => a.piece !== piece);
-        piece.pivot.rotation.set(0, 0, 0);
-        this.highlight(piece, true);
-        return;
-      }
+    // Nearest piece under the finger (parked pieces can sit in front of others).
+    const grabbable = this.dancer ? [] : [...this.parkedPieces(), ...this.shownTray()];
+    let best = null;
+    for (const piece of grabbable) {
+      const hit = this.raycaster.intersectObject(piece.pivot, true)[0];
+      if (hit && (!best || hit.distance < best.distance)) best = { piece, distance: hit.distance };
+    }
+    if (best) {
+      const piece = best.piece;
+      this.dragging = { piece, pointerId: e.pointerId, from: piece.state, x: e.clientX, y: e.clientY };
+      this.selected = piece;
+      this.renderer.domElement.setPointerCapture(e.pointerId);
+      this.anims = this.anims.filter((a) => a.piece !== piece);
+      if (this.easyFor(piece)) this.highlight(piece, true);
+      return;
     }
     // Spin the finished model with a swipe (only when nothing is waiting in the tray).
-    if (this.dancer || !this.trayPieces().length) {
+    if (this.dancer || (!this.trayPieces().length && !this.parkedPieces().length)) {
       this.spinning = { x: e.clientX, rot: this.root.rotation.y, pointerId: e.pointerId };
       this.renderer.domElement.setPointerCapture(e.pointerId);
     }
@@ -263,23 +384,26 @@ export class BuildScene {
   pointerUp(e) {
     if (this.spinning && e.pointerId === this.spinning.pointerId) this.spinning = null;
     if (!this.dragging || e.pointerId !== this.dragging.pointerId) return;
-    const piece = this.dragging.piece;
+    const { piece, from, x, y } = this.dragging;
     this.dragging = null;
-    this.highlight(piece, false);
-    const at = this.root.localToWorld(piece.pivot.position.clone()).project(this.camera);
-    const home = this.root.localToWorld(piece.homeLocal.clone()).project(this.camera);
-    const w = this.container.clientWidth, h = this.container.clientHeight;
-    const dx = ((at.x - home.x) / 2) * w;
-    const dy = ((at.y - home.y) / 2) * h;
-    if (Math.hypot(dx, dy) < Math.min(w, h) * SNAP_FRACTION + 20) {
-      piece.state = 'placed';
-      piece.ghost.visible = false;
-      this.sendHome(piece, true, () => this.pop(piece));
-      this.layoutTray(true); // the next waiting piece slides in
-      this.onPlace?.(piece.id);
+    if (!piece.hinting) this.highlight(piece, false);
+    if (this.easyFor(piece)) {
+      if (this.nearHome(piece)) this.placePiece(piece);
+      else this.moveTo(piece, piece.trayLocal, piece.trayScale, true);
+      return;
+    }
+    // Medium/hard: it stays where it was let go, unless that's the tray
+    // (a tap without moving it just picks it to turn).
+    const tapped = Math.hypot(e.clientX - x, e.clientY - y) < 12;
+    const toTray = tapped ? from === 'tray' : this.overTray(e);
+    const state = toTray ? 'tray' : 'parked';
+    if (toTray) this.moveTo(piece, piece.trayLocal ?? piece.pivot.position, piece.trayScale ?? 1, true);
+    else this.moveTo(piece, piece.pivot.position.clone(), 1, true);
+    if (state !== piece.state) {
+      piece.state = state;
+      this.layoutTray(true);
       this.onTrayChange?.(this.trayPieces().map((p) => p.id));
-    } else {
-      this.moveTo(piece, piece.trayLocal, piece.trayScale, true);
+      this.onParkedChange?.(this.parkedPieces().length);
     }
   }
 
@@ -358,10 +482,18 @@ export class BuildScene {
       if (k >= 1) a.done?.();
       return k < 1;
     });
-    // Waiting pieces wiggle a little so they look grabbable.
-    for (const piece of this.shownTray()) {
-      if (piece !== this.dragging?.piece) piece.pivot.rotation.y = Math.sin(time * 1.5 + piece.wobble) * 0.35;
+    for (const piece of this.pieces.values()) {
+      if (piece.state !== 'tray' && piece.state !== 'parked') continue;
+      // Waiting pieces sway a little so they look grabbable.
+      const sway = piece.state === 'tray' && piece !== this.dragging?.piece ? Math.sin(time * 1.5 + piece.wobble) * 0.35 : 0;
+      // Turns ease toward the arrow presses (hard).
+      piece.angle += (piece.turn * QUARTER - piece.angle) * Math.min(1, dt * 14);
+      // "Not quite" head-shake after a wrong Check.
+      const since = time - piece.shakeAt;
+      const shake = piece.shakeAt >= 0 && since < 0.6 ? Math.sin(since * 38) * 0.22 * (1 - since / 0.6) : 0;
+      piece.pivot.rotation.set(0, sway + shake, piece.angle);
     }
+    if (this.ghostRoot) this.updateGhosts(time);
     this.mixer?.update(dt);
     this.renderer.render(this.scene, this.camera);
   }
@@ -387,4 +519,58 @@ export class BuildScene {
     this.renderer.dispose();
     el.remove();
   }
+}
+
+// The piece's vertices around its pivot (its center): a few hundred to test
+// and a few thousand to compare against.
+function samplePoints(node, pivot) {
+  pivot.updateMatrixWorld(true);
+  const inverse = pivot.matrixWorld.clone().invert();
+  const meshes = [];
+  let total = 0;
+  node.traverse((o) => {
+    if (o.isMesh && o.geometry?.attributes.position) {
+      meshes.push(o);
+      total += o.geometry.attributes.position.count;
+    }
+  });
+  const pick = (max) => {
+    const stride = Math.max(1, Math.ceil(total / max));
+    const out = [];
+    let i = 0;
+    const v = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    for (const mesh of meshes) {
+      m.multiplyMatrices(inverse, mesh.matrixWorld);
+      const pos = mesh.geometry.attributes.position;
+      for (; i < pos.count; i += stride) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m);
+        out.push(v.x, v.y, v.z);
+      }
+      i -= pos.count;
+    }
+    return out;
+  };
+  return { queries: pick(200), targets: pick(2500) };
+}
+
+// Does the piece look the same after k quarter turns around the view axis?
+function sameShape(queries, targets, k, size) {
+  if (!queries.length) return false;
+  const c = Math.round(Math.cos(k * QUARTER));
+  const s = Math.round(Math.sin(k * QUARTER));
+  let sum = 0;
+  for (let i = 0; i < queries.length; i += 3) {
+    const x = c * queries[i] - s * queries[i + 1];
+    const y = s * queries[i] + c * queries[i + 1];
+    const z = queries[i + 2];
+    let best = Infinity;
+    for (let j = 0; j < targets.length; j += 3) {
+      const dx = targets[j] - x, dy = targets[j + 1] - y, dz = targets[j + 2] - z;
+      const d = dx * dx + dy * dy + dz * dz;
+      if (d < best) best = d;
+    }
+    sum += Math.sqrt(best);
+  }
+  return sum / (queries.length / 3) < size * 0.05;
 }

@@ -6,6 +6,7 @@ import Build from '../Build.jsx';
 import KidHome from '../KidHome.jsx';
 import TrackingCheck from './TrackingCheck.jsx';
 import Exercises from '../../exercises/Exercises.jsx';
+import { PUZZLE_LEVELS } from '../PuzzleLevel.jsx';
 
 // Try brushing and building without touching any kid's progress.
 export default function TestTab({ onAuthLost, show }) {
@@ -13,6 +14,7 @@ export default function TestTab({ onAuthLost, show }) {
   const [characters, setCharacters] = useState([]);
   const [kidCharacter, setKidCharacter] = useState('');
   const [testState, setTestState] = useState(null);
+  const [buildLevel, setBuildLevel] = useState('easy');
 
   async function loadTestKid() {
     const s = await call(() => api.get('/api/parent/test-kid'));
@@ -35,7 +37,13 @@ export default function TestTab({ onAuthLost, show }) {
 
   function testBuild(c) {
     const testCharacter = { ...c, dances: c.dances.filter((d) => d.status === 'ready') };
-    show(<Build testCharacter={testCharacter} onExit={() => show(null)} />);
+    show(<Build testCharacter={testCharacter} level={buildLevel} onExit={() => show(null)} />);
+  }
+
+  async function setTestKidLevel(level) {
+    if (!testState?.profile) return;
+    const r = await call(() => api.put(`/api/kids/${testState.profile.id}/puzzle`, { level }));
+    if (r) setTestState((s) => ({ ...s, puzzleLevel: r.puzzleLevel }));
   }
 
   async function actAsKid() {
@@ -72,6 +80,7 @@ export default function TestTab({ onAuthLost, show }) {
             </select>
             <button className="btn primary" onClick={actAsKid}>Act as test kid</button>
             <button className="btn" onClick={resetTestKid} disabled={!tc?.pieces?.some((p) => p.unlocked)}>Start over</button>
+            {testState?.profile && <LevelSelect value={testState.puzzleLevel || 'easy'} onChange={setTestKidLevel} />}
           </div>
         ) : (
           <p className="muted">Add a character under Characters first.</p>
@@ -97,6 +106,7 @@ export default function TestTab({ onAuthLost, show }) {
         <h3>🧩 Test building only</h3>
         <p className="muted">Every piece starts unlocked so you can put the whole thing together, then try the dances. Nothing is saved.</p>
         {!characters.length && <p className="muted">No characters ready yet.</p>}
+        <LevelSelect value={buildLevel} onChange={setBuildLevel} />
         <div className="row wrap">
           {characters.map((c) => (
             <button key={c.id} className="btn" onClick={() => testBuild(c)}>{c.kind === 'dress' ? '👗' : '🤖'} {c.name}</button>
@@ -104,6 +114,16 @@ export default function TestTab({ onAuthLost, show }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function LevelSelect({ value, onChange }) {
+  return (
+    <label className="inline">Puzzle
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {PUZZLE_LEVELS.map((l) => <option key={l.key} value={l.key}>{l.emoji} {l.name}</option>)}
+      </select>
+    </label>
   );
 }
 

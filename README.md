@@ -6,8 +6,15 @@ A family app for the house, starting with kids' tooth brushing:
   The countdown (2:00, then 0:15 for the front teeth) only moves while they
   are. Stop brushing or walk away and it just waits.
 - **Building**: each finished brush (at least 6 hours after the last one, so
-  morning and bedtime both count) unlocks one piece of a 3D character. The kid drags it onto a faint outline and it snaps into place.
-  When the whole character is built, it dances.
+  morning and bedtime both count) unlocks one piece of a 3D character.
+  When the whole character is built, it dances. Each kid picks how hard
+  building is in Settings:
+  - *Easy*: drag the piece onto a faint outline and it snaps into place.
+  - *Medium*: no outlines. Put the piece where you think it goes and tap
+    **Check**: close enough clicks in, otherwise it wiggles and you try again
+    (after three misses the outline flashes for a moment).
+  - *Hard*: like medium, but pieces arrive turned and the arrows turn them back.
+  The first piece of a character always works like easy, to show where it starts.
 - **Exercises**: home exercises from an occupational therapist.
   - *Metronome*: a steady tick to clap along to, faster or slower by 5 beats
     a minute (each kid's speed is remembered on the device).
