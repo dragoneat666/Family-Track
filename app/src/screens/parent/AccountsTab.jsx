@@ -95,7 +95,7 @@ export default function AccountsTab({ onAuthLost }) {
             <label className="inline">Building
               <select value={a.characterId || ''} onChange={(e) => setCharacter(a, Number(e.target.value))}>
                 <option value="">— nothing —</option>
-                {characters.filter((c) => c.status === 'ready').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {characters.filter((c) => c.status === 'ready' && c.kind !== 'partner').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </label>
             <button className="btn" onClick={() => resetProgress(a)} disabled={!a.characterId}>Reset progress</button>

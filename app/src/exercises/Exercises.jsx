@@ -9,7 +9,8 @@ export const EXERCISES = [
   { key: 'starfish', emoji: '⭐', name: 'Hug & Starfish', blurb: 'Hug, cross, sit up, hold… starfish!', Screen: HugStarfish }
 ];
 
-// The list of exercises and the kid's coach; tapping one opens it.
+// The list of exercises; tapping one opens it. Kids pick their exercise
+// partner in Settings.
 export default function Exercises({ profile, grownUp = false, onExit, start = null }) {
   const [open, setOpen] = useState(start);
   const kid = useExercises(profile);
@@ -24,8 +25,8 @@ export default function Exercises({ profile, grownUp = false, onExit, start = nu
       <header className="build-header">
         <button className="btn" onClick={onExit}>← Back</button>
         <div className="build-title">🏃 Exercises</div>
+        {kid.partner && <span className="coach-chip">With {kid.partner.name}</span>}
       </header>
-      {kid.coaches.length > 0 && <CoachPicker kid={kid} />}
       <div className="exercise-list">
         {EXERCISES.map((e) => (
           <button key={e.key} className="big-action exercise" onClick={() => setOpen(e.key)}>
@@ -39,20 +40,18 @@ export default function Exercises({ profile, grownUp = false, onExit, start = nu
   );
 }
 
-export function CoachPicker({ kid }) {
+const KIND_EMOJI = { build: '🤖', dress: '👗', partner: '⭐' };
+
+// Tiles for picking an exercise partner (kid Settings).
+export function PartnerPicker({ kid }) {
   return (
     <div className="coach-picker">
-      <span className="coach-picker-title">Your coach:</span>
-      {kid.coaches.map((c) => (
-        <button key={c.id} className={kid.coach?.id === c.id ? 'coach-tile on' : 'coach-tile'} onClick={() => kid.save({ coachId: c.id })}>
-          <span className="coach-emoji">{c.emoji}</span>
-          {c.name}
+      {kid.partners.map((p) => (
+        <button key={p.id} className={kid.partner?.id === p.id ? 'coach-tile on' : 'coach-tile'} onClick={() => kid.save({ partnerId: p.id })}>
+          <span className="coach-emoji">{KIND_EMOJI[p.kind] ?? '⭐'}</span>
+          {p.name}
         </button>
       ))}
-      <button className={!kid.coach ? 'coach-tile on' : 'coach-tile'} onClick={() => kid.save({ coachId: null })}>
-        <span className="coach-emoji">🔕</span>
-        No coach
-      </button>
     </div>
   );
 }

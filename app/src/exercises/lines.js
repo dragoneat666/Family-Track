@@ -1,4 +1,4 @@
-// Everything a coach can say, in the order a grown-up records it. Exercises
+// Everything an exercise partner can say, in the order a grown-up records it. Exercises
 // refer to lines by key; a line nobody recorded falls back to the device's
 // own voice (where there is one) or a tick.
 
@@ -38,7 +38,7 @@ export const LINE_GROUPS = [
 export const ALL_LINES = LINE_GROUPS.flatMap((g) => g.lines);
 export const lineText = (key) => ALL_LINES.find((l) => l.key === key)?.text ?? key;
 
-// Voice effects the app adds while playing a coach's lines.
+// Voice effects the app adds while playing a partner's lines.
 export const EFFECTS = [
   { key: 'none', name: 'Just my voice' },
   { key: 'robot', name: 'Robot leader (deep and metallic)' },
@@ -47,5 +47,3 @@ export const EFFECTS = [
   { key: 'high', name: 'Sparkly (higher, with a shimmer)' },
   { key: 'echo', name: 'Echo (big cave)' }
 ];
-
-export const COACH_EMOJIS = ['🤖', '🚚', '🚗', '🐝', '🦸', '👸', '🧜‍♀️', '🧚', '🦄', '🐉', '🦖', '⭐', '🧑', '👩', '👨'];

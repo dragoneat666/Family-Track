@@ -26,7 +26,7 @@ export default function TestTab({ onAuthLost, show }) {
     (async () => {
       const [c, s] = await Promise.all([call(() => api.get('/api/parent/characters')), loadTestKid()]);
       if (!c) return;
-      const ready = c.filter((x) => x.status === 'ready');
+      const ready = c.filter((x) => x.status === 'ready' && x.kind !== 'partner');
       setCharacters(ready);
       // Pick up where the test kid left off, if it was building something.
       const current = s?.character && ready.find((x) => x.id === s.character.id);

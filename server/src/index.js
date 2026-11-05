@@ -9,7 +9,7 @@ import {
   hasAdults, hashPin, validPin, checkAccountPin, checkAnyAdultPin, createDevice,
   optionalDevice, requireAccount, requireAdult, httpError
 } from './auth.js';
-import { buildCharacterModel, processRigged, processDance, characterDir, niceName } from './assets.js';
+import { buildCharacterModel, processRigged, processDance, processExercise, characterDir, niceName } from './assets.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
 const app = express();
@@ -335,52 +335,83 @@ app.get('/api/characters/:id/dances/:danceId.glb', (req, res) =>
   sendAsset(res, path.join(characterDir(Number(req.params.id)), 'dances', `${Number(req.params.danceId)}.glb`)));
 
 // ---------- exercises ----------
-// Coaches are voices for the exercises: a grown-up records each line, and the
-// app plays it with the coach's effect (robot, radio…). Recordings arrive as
-// small WAV files, already trimmed and evened out by the app.
+// Exercise partners: a character with an exercise model (its own .glb with
+// the exercise animations) shows each move, and talks in recorded lines played
+// with its voice effect (robot, radio…). Recordings arrive as small WAV files,
+// already trimmed and evened out by the app. They're kept in /data/voices
+// (backed up), not with the 3D files (which can just be uploaded again).
 
-const coachDir = (id) => path.join(DATA_DIR, 'coaches', String(id));
+const voiceDir = (id) => path.join(DATA_DIR, 'voices', String(id));
 const LINE_KEY = /^[a-z0-9_]{1,40}$/;
 const EFFECTS = ['none', 'robot', 'radio', 'deep', 'high', 'echo'];
-const coachRow = (id) => {
-  const c = db.prepare('SELECT * FROM coaches WHERE id = ?').get(id);
-  if (!c) throw httpError(404, 'No such coach');
-  return c;
-};
-function coachDetail(c) {
+const safeJson = (s) => { try { return JSON.parse(s) || {}; } catch { return {}; } };
+
+function voiceLines(characterId) {
   const lines = {};
-  for (const l of db.prepare('SELECT line, version, seconds FROM coach_lines WHERE coach_id = ?').all(c.id)) {
+  for (const l of db.prepare('SELECT line, version, seconds FROM character_lines WHERE character_id = ?').all(characterId)) {
     lines[l.line] = { version: l.version, seconds: l.seconds };
   }
-  return { id: c.id, name: c.name, emoji: c.emoji, effect: c.effect, lines };
+  return lines;
 }
 
-app.get('/api/coaches', (req, res) => {
-  res.json(db.prepare('SELECT * FROM coaches ORDER BY id').all().map(coachDetail));
-});
+// What the app needs to show a partner and hear them.
+function partnerDetail(c) {
+  const ex = safeJson(c.exercise);
+  return {
+    id: c.id, name: c.name, kind: c.kind, effect: c.voice_effect,
+    version: ex.version ?? 0, uses: ex.uses ?? {}, marks: ex.marks ?? {}, animations: ex.animations ?? [],
+    lines: voiceLines(c.id)
+  };
+}
 
-app.get('/api/coaches/:id/lines/:line.wav', (req, res) => {
+// Partners a kid can pick: characters with a ready exercise model that are
+// open to everyone or that this kid has finished building.
+function partnersFor(profileId) {
+  return db.prepare(`
+    SELECT c.* FROM characters c
+    WHERE json_extract(c.exercise, '$.status') = 'ready' AND (
+      c.partner_for_all = 1 OR (
+        EXISTS (SELECT 1 FROM pieces p WHERE p.character_id = c.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM pieces p LEFT JOIN unlocks u ON u.piece_id = p.id AND u.profile_id = ?
+          WHERE p.character_id = c.id AND u.placed_at IS NULL
+        )
+      )
+    ) ORDER BY c.id`).all(profileId).map(partnerDetail);
+}
+
+app.get('/api/characters/:id/exercise.glb', (req, res) => sendAsset(res, path.join(characterDir(Number(req.params.id)), 'exercise.glb')));
+
+app.get('/api/characters/:id/lines/:line.wav', (req, res) => {
   const line = String(req.params.line);
   if (!LINE_KEY.test(line)) throw httpError(404, 'File not found');
-  const file = path.join(coachDir(Number(req.params.id)), `${line}.wav`);
+  const file = path.join(voiceDir(Number(req.params.id)), `${line}.wav`);
   if (!fs.existsSync(file)) throw httpError(404, 'File not found');
   res.set('Cache-Control', 'private, max-age=31536000, immutable');
   res.type('audio/wav').sendFile(file);
 });
 
-// A kid's coach and exercise settings (hold times, speeds…). Kids may change
-// their own; grown-ups any kid's.
-const exerciseState = (p) => ({ coachId: p.coach_id ?? null, settings: safeJson(p.exercise_settings) });
-const safeJson = (s) => { try { return JSON.parse(s) || {}; } catch { return {}; } };
+// App builds before partners (0.1.9 and 0.1.10) ask for coaches.
+app.get('/api/coaches', (req, res) => res.json([]));
+
+// A kid's partner, the partners they can pick, and their exercise settings
+// (hold times, speeds…). Kids may change their own; grown-ups any kid's.
+// No partner picked (or it's no longer theirs) = the first one they have.
+function exerciseState(p) {
+  const partners = partnersFor(p.id);
+  const partnerId = partners.find((x) => x.id === p.partner_id)?.id ?? partners[0]?.id ?? null;
+  return { partnerId, partners, settings: safeJson(p.exercise_settings) };
+}
 
 app.get('/api/kids/:id/exercises', (req, res) => res.json(exerciseState(profileRow(Number(req.params.id)))));
 
 app.put('/api/kids/:id/exercises', (req, res) => {
   const p = profileRow(Number(req.params.id));
   const b = req.body || {};
-  if ('coachId' in b) {
-    const coachId = b.coachId == null ? null : coachRow(Number(b.coachId)).id;
-    db.prepare('UPDATE profiles SET coach_id = ? WHERE id = ?').run(coachId, p.id);
+  if ('partnerId' in b) {
+    const id = Number(b.partnerId);
+    if (!partnersFor(p.id).some((x) => x.id === id)) throw httpError(400, "That partner isn't unlocked yet");
+    db.prepare('UPDATE profiles SET partner_id = ? WHERE id = ?').run(id, p.id);
   }
   if (b.settings && typeof b.settings === 'object') {
     // One small object per exercise, merged into what's there.
@@ -513,7 +544,7 @@ parent.get('/test-kid', (req, res) => {
 // Start acting as the test kid, building this character (keeps any progress on it).
 parent.post('/test-kid', (req, res) => {
   const characterId = Number(req.body.characterId);
-  characterRow(characterId);
+  if (characterRow(characterId).kind === 'partner') throw httpError(400, "That one is only an exercise partner; there's nothing to build");
   const p = testKid();
   db.transaction(() => {
     db.prepare('UPDATE profile_characters SET active = 0 WHERE profile_id = ?').run(p.id);
@@ -536,6 +567,7 @@ parent.post('/test-kid/reset', (req, res) => {
 parent.put('/profiles/:id/character', (req, res) => {
   const profileId = profileRow(Number(req.params.id)).id;
   const characterId = req.body.characterId ? Number(req.body.characterId) : null;
+  if (characterId && characterRow(characterId).kind === 'partner') throw httpError(400, "That one is only an exercise partner; there's nothing to build");
   db.transaction(() => {
     db.prepare('UPDATE profile_characters SET active = 0 WHERE profile_id = ?').run(profileId);
     if (characterId) {
@@ -559,10 +591,17 @@ parent.delete('/profiles/:id/progress/:characterId', (req, res) => {
 // Characters
 
 function characterDetail(c) {
+  const ex = c.exercise ? safeJson(c.exercise) : null;
   return {
     id: c.id, name: c.name, kind: c.kind, status: c.status, error: c.error, hasRigged: !!c.has_rigged, version: c.version,
     pieces: db.prepare('SELECT id, name, node_name AS nodeName FROM pieces WHERE character_id = ? ORDER BY sort, id').all(c.id),
-    dances: db.prepare('SELECT id, name, status, error FROM dances WHERE character_id = ? ORDER BY id').all(c.id)
+    dances: db.prepare('SELECT id, name, status, error FROM dances WHERE character_id = ? ORDER BY id').all(c.id),
+    partner: {
+      forAll: !!c.partner_for_all,
+      effect: c.voice_effect,
+      lines: voiceLines(c.id),
+      exercise: ex && { status: ex.status, error: ex.error ?? null, version: ex.version ?? 0, animations: ex.animations ?? [], uses: ex.uses ?? {}, marks: ex.marks ?? {} }
+    }
   };
 }
 const characterRow = (id) => {
@@ -575,19 +614,31 @@ parent.get('/characters', (req, res) => {
   res.json(db.prepare('SELECT * FROM characters ORDER BY id').all().map(characterDetail));
 });
 
-const characterUpload = upload.fields([{ name: 'pieces', maxCount: 60 }, { name: 'rigged', maxCount: 1 }, { name: 'dances', maxCount: 60 }]);
+const characterUpload = upload.fields([
+  { name: 'pieces', maxCount: 60 }, { name: 'rigged', maxCount: 1 }, { name: 'dances', maxCount: 60 }, { name: 'exercise', maxCount: 1 }
+]);
+const KINDS = ['build', 'dress', 'partner'];
 
 parent.post('/characters', characterUpload, (req, res) => {
   const files = req.files || {};
   const pieces = files.pieces || [];
+  const kind = KINDS.includes(req.body.kind) ? req.body.kind : 'build';
   if (!String(req.body.name || '').trim()) { cleanup(req); throw httpError(400, 'Name is required'); }
-  if (!pieces.length) { cleanup(req); throw httpError(400, 'Add at least one piece (.glb)'); }
-  const kind = req.body.kind === 'dress' ? 'dress' : 'build';
-  const id = db.prepare('INSERT INTO characters (name, kind) VALUES (?, ?)').run(String(req.body.name).trim().slice(0, 60), kind).lastInsertRowid;
-  addPieces(id, pieces);
-  const jobs = [() => rebuild(id)];
+  if (kind === 'partner' && !files.exercise?.[0]) { cleanup(req); throw httpError(400, 'Add the exercise model (.glb)'); }
+  if (kind !== 'partner' && !pieces.length) { cleanup(req); throw httpError(400, 'Add at least one piece (.glb)'); }
+  // A partner-only character has nothing to build, so it's ready straight away.
+  const id = db.prepare('INSERT INTO characters (name, kind, status, partner_for_all) VALUES (?, ?, ?, ?)')
+    .run(String(req.body.name).trim().slice(0, 60), kind, kind === 'partner' ? 'ready' : 'processing', kind === 'partner' ? 1 : 0).lastInsertRowid;
+  const jobs = [];
+  if (kind !== 'partner') {
+    addPieces(id, pieces);
+    jobs.push(() => rebuild(id));
+  } else {
+    cleanupFiles(pieces);
+  }
   if (files.rigged?.[0]) jobs.push(...riggedJobs(id, files.rigged[0]));
   jobs.push(...danceJobs(id, files.dances || []));
+  if (files.exercise?.[0]) jobs.push(...exerciseJobs(id, files.exercise[0]));
   enqueue(jobs);
   res.status(202).json(characterDetail(characterRow(id)));
 });
@@ -596,8 +647,10 @@ parent.put('/characters/:id', (req, res) => {
   const c = characterRow(Number(req.params.id));
   const b = req.body;
   db.transaction(() => {
+    // A partner-only character stays one (it has no pieces to build).
+    const kind = c.kind !== 'partner' && (b.kind === 'dress' || b.kind === 'build') ? b.kind : c.kind;
     db.prepare('UPDATE characters SET name = ?, kind = ? WHERE id = ?').run(
-      String(b.name ?? c.name).trim().slice(0, 60) || c.name, b.kind === 'dress' || b.kind === 'build' ? b.kind : c.kind, c.id);
+      String(b.name ?? c.name).trim().slice(0, 60) || c.name, kind, c.id);
     // pieces: full list in the new unlock order, with names
     (b.pieces || []).forEach((p, i) => {
       db.prepare('UPDATE pieces SET name = ?, sort = ? WHERE id = ? AND character_id = ?')
@@ -611,7 +664,52 @@ parent.delete('/characters/:id', (req, res) => {
   const c = characterRow(Number(req.params.id));
   db.prepare('DELETE FROM characters WHERE id = ?').run(c.id);
   fs.rmSync(characterDir(c.id), { recursive: true, force: true });
+  fs.rmSync(voiceDir(c.id), { recursive: true, force: true });
   res.json({ ok: true });
+});
+
+// Exercise partner: the exercise model, what each animation is for, pause
+// marks, open to everyone or not, and the voice.
+
+parent.post('/characters/:id/exercise', upload.single('exercise'), (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  if (!req.file) throw httpError(400, 'No .glb file received');
+  enqueue(exerciseJobs(c.id, req.file));
+  res.status(202).json(characterDetail(characterRow(c.id)));
+});
+
+const USE_KEY = /^[a-z0-9_]{1,40}$/;
+parent.put('/characters/:id/partner', (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  const b = req.body || {};
+  if ('forAll' in b) db.prepare('UPDATE characters SET partner_for_all = ? WHERE id = ?').run(b.forAll ? 1 : 0, c.id);
+  if (EFFECTS.includes(b.effect)) db.prepare('UPDATE characters SET voice_effect = ? WHERE id = ?').run(b.effect, c.id);
+  if (b.uses || b.marks) {
+    const ex = safeJson(c.exercise);
+    const names = new Set((ex.animations || []).map((a) => a.name));
+    if (b.uses && typeof b.uses === 'object') {
+      ex.uses = {};
+      for (const [use, name] of Object.entries(b.uses)) if (USE_KEY.test(use) && names.has(name)) ex.uses[use] = name;
+    }
+    if (b.marks && typeof b.marks === 'object') {
+      ex.marks = {};
+      for (const [name, list] of Object.entries(b.marks)) {
+        const seconds = names.has(name) && Array.isArray(list) ? list.map(Number).filter((t) => Number.isFinite(t) && t >= 0) : [];
+        if (seconds.length) ex.marks[name] = [...new Set(seconds.map((t) => Math.round(t * 1000) / 1000))].sort((x, y) => x - y).slice(0, 20);
+      }
+    }
+    db.prepare('UPDATE characters SET exercise = ? WHERE id = ?').run(JSON.stringify(ex), c.id);
+  }
+  res.json(characterDetail(characterRow(c.id)));
+});
+
+parent.delete('/characters/:id/exercise', (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  if (c.kind === 'partner') throw httpError(400, 'This one is only a partner: delete the character instead');
+  db.prepare('UPDATE characters SET exercise = NULL WHERE id = ?').run(c.id);
+  fs.rmSync(path.join(characterDir(c.id), 'exercise.glb'), { force: true });
+  fs.rmSync(path.join(characterDir(c.id), 'src', 'exercise.glb'), { force: true });
+  res.json(characterDetail(characterRow(c.id)));
 });
 
 parent.post('/characters/:id/pieces', upload.array('pieces', 60), (req, res) => {
@@ -664,61 +762,36 @@ parent.delete('/dances/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Coaches
+// A partner's voice lines
 
 const audioUpload = multer({ dest: TMP_DIR, limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
-const coachFields = (b, c = {}) => ({
-  name: cleanName(b.name, c.name || 'Coach'),
-  emoji: String(b.emoji ?? c.emoji ?? '🤖').slice(0, 16) || '🤖',
-  effect: EFFECTS.includes(b.effect) ? b.effect : c.effect || 'none'
-});
 
-parent.post('/coaches', (req, res) => {
-  const f = coachFields(req.body || {});
-  const id = db.prepare('INSERT INTO coaches (name, emoji, effect) VALUES (?, ?, ?)').run(f.name, f.emoji, f.effect).lastInsertRowid;
-  res.json(coachDetail(coachRow(id)));
-});
-
-parent.put('/coaches/:id', (req, res) => {
-  const c = coachRow(Number(req.params.id));
-  const f = coachFields(req.body || {}, c);
-  db.prepare('UPDATE coaches SET name = ?, emoji = ?, effect = ? WHERE id = ?').run(f.name, f.emoji, f.effect, c.id);
-  res.json(coachDetail(coachRow(c.id)));
-});
-
-parent.delete('/coaches/:id', (req, res) => {
-  const c = coachRow(Number(req.params.id));
-  db.prepare('DELETE FROM coaches WHERE id = ?').run(c.id);
-  fs.rmSync(coachDir(c.id), { recursive: true, force: true });
-  res.json({ ok: true });
-});
-
-parent.put('/coaches/:id/lines/:line', audioUpload.single('audio'), (req, res) => {
+parent.put('/characters/:id/lines/:line', audioUpload.single('audio'), (req, res) => {
   const tmp = req.file?.path;
   try {
-    const c = coachRow(Number(req.params.id));
+    const c = characterRow(Number(req.params.id));
     const line = String(req.params.line);
     if (!LINE_KEY.test(line)) throw httpError(400, 'Bad line name');
     if (!tmp) throw httpError(400, 'No recording received');
     const seconds = wavSeconds(tmp);
     if (!seconds) throw httpError(400, 'That recording is not a WAV file');
-    moveFile(tmp, path.join(coachDir(c.id), `${line}.wav`));
-    db.prepare(`INSERT INTO coach_lines (coach_id, line, version, seconds) VALUES (?, ?, ?, ?)
-      ON CONFLICT(coach_id, line) DO UPDATE SET version = excluded.version, seconds = excluded.seconds`)
+    moveFile(tmp, path.join(voiceDir(c.id), `${line}.wav`));
+    db.prepare(`INSERT INTO character_lines (character_id, line, version, seconds) VALUES (?, ?, ?, ?)
+      ON CONFLICT(character_id, line) DO UPDATE SET version = excluded.version, seconds = excluded.seconds`)
       .run(c.id, line, newVersion(), seconds);
-    res.json(coachDetail(c));
+    res.json(characterDetail(c));
   } finally {
     if (tmp) fs.rmSync(tmp, { force: true });
   }
 });
 
-parent.delete('/coaches/:id/lines/:line', (req, res) => {
-  const c = coachRow(Number(req.params.id));
+parent.delete('/characters/:id/lines/:line', (req, res) => {
+  const c = characterRow(Number(req.params.id));
   const line = String(req.params.line);
   if (!LINE_KEY.test(line)) throw httpError(400, 'Bad line name');
-  db.prepare('DELETE FROM coach_lines WHERE coach_id = ? AND line = ?').run(c.id, line);
-  fs.rmSync(path.join(coachDir(c.id), `${line}.wav`), { force: true });
-  res.json(coachDetail(c));
+  db.prepare('DELETE FROM character_lines WHERE character_id = ? AND line = ?').run(c.id, line);
+  fs.rmSync(path.join(voiceDir(c.id), `${line}.wav`), { force: true });
+  res.json(characterDetail(c));
 });
 
 // Length of a PCM WAV file in seconds, or 0 if it isn't one.
@@ -845,6 +918,51 @@ function danceJobs(characterId, files) {
   });
 }
 
+// The original is kept (src/exercise.glb) so it can be shrunk again later.
+// Animations named like "Starfish_Sit_Up.L" or "Wave" get their use guessed;
+// uses and pause marks already set are kept when the animation is still there.
+function exerciseJobs(characterId, file) {
+  moveFile(file.path, path.join(characterDir(characterId), 'src', 'exercise.glb'));
+  const ex = safeJson(characterRow(characterId).exercise);
+  db.prepare('UPDATE characters SET exercise = ? WHERE id = ?').run(JSON.stringify({ ...ex, status: 'processing', error: null }), characterId);
+  return [exerciseJob(characterId)];
+}
+
+function exerciseJob(characterId) {
+  const src = path.join(characterDir(characterId), 'src', 'exercise.glb');
+  const setExercise = (ex) => db.prepare('UPDATE characters SET exercise = ? WHERE id = ?').run(JSON.stringify(ex), characterId);
+  return async () => {
+    const before = safeJson(characterRow(characterId).exercise);
+    try {
+      const r = await processExercise(characterId, src);
+      const names = new Set(r.animations.map((a) => a.name));
+      const uses = {};
+      for (const [use, name] of Object.entries(before.uses || {})) if (names.has(name)) uses[use] = name;
+      for (const a of r.animations) {
+        const use = guessUse(a.name);
+        if (use && !uses[use]) uses[use] = a.name;
+      }
+      const marks = {};
+      for (const [name, list] of Object.entries(before.marks || {})) if (names.has(name)) marks[name] = list;
+      setExercise({ status: 'ready', error: null, version: newVersion(), animations: r.animations, uses, marks });
+      console.log(`character ${characterId}: exercise model ${r.before} -> ${r.after} triangles, ${r.animations.length} animations`);
+    } catch (e) {
+      setExercise({ ...before, status: 'error', error: String(e.message || e) });
+    }
+  };
+}
+
+// "Starfish_Sit_Up.L" -> starfish_in_left, "Starfish_Sit_Up_Rev.R" -> starfish_out_right,
+// "Wave" / "Cheer" -> cheer.
+function guessUse(name) {
+  const n = name.toLowerCase();
+  if (/wave|cheer|yay|celebrat/.test(n)) return 'cheer';
+  if (!/starfish|sit/.test(n)) return null;
+  const side = /(\.|_|-|\s)l$|left/.test(n) ? 'left' : /(\.|_|-|\s)r$|right/.test(n) ? 'right' : null;
+  if (!side) return null;
+  return `starfish_${/rev|out|back|down|undo/.test(n) ? 'out' : 'in'}_${side}`;
+}
+
 function moveFile(from, to) {
   fs.mkdirSync(path.dirname(to), { recursive: true });
   fs.copyFileSync(from, to);
@@ -852,7 +970,10 @@ function moveFile(from, to) {
 }
 
 function cleanup(req) {
-  for (const list of Object.values(req.files || {})) for (const f of list) fs.rmSync(f.path, { force: true });
+  for (const list of Object.values(req.files || {})) cleanupFiles(list);
+}
+function cleanupFiles(list) {
+  for (const f of list) fs.rmSync(f.path, { force: true });
 }
 
 // ---------- web app + errors ----------
@@ -876,6 +997,7 @@ app.use((err, req, res, next) => {
 // Characters stuck mid-processing (server restarted) get retried.
 // Dance uploads live in the temp folder until processed, so those are lost.
 for (const c of db.prepare("SELECT id FROM characters WHERE status = 'processing'").all()) enqueue([() => rebuild(c.id)]);
+for (const c of db.prepare("SELECT id FROM characters WHERE json_extract(exercise, '$.status') = 'processing'").all()) enqueue([exerciseJob(c.id)]);
 db.prepare("UPDATE dances SET status = 'error', error = 'The server restarted before this finished. Upload it again.' WHERE status = 'processing'").run();
 fs.rmSync(TMP_DIR, { recursive: true, force: true });
 fs.mkdirSync(TMP_DIR, { recursive: true });

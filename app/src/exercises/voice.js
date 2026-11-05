@@ -1,11 +1,11 @@
 import { api } from '../api.js';
 import { tick, audioContext } from './sounds.js';
-import { lineText } from './coachLines.js';
+import { lineText } from './lines.js';
 
-// Plays a coach's recorded lines through its voice effect. A line the coach
-// doesn't have is spoken by the device's own voice if it has one (browsers
+// Plays an exercise partner's recorded lines through its voice effect. A line
+// the partner doesn't have is spoken by the device's own voice if it has one (browsers
 // do; the Android app doesn't), otherwise it's a soft tick.
-export class CoachPlayer {
+export class VoicePlayer {
   constructor() {
     this.ctx = audioContext();
     this.buffers = {};
@@ -17,14 +17,14 @@ export class CoachPlayer {
     return this.ctx.resume();
   }
 
-  async load(coach) {
-    this.coach = coach;
-    this.effect = coach?.effect || 'none';
+  // partner: { id, effect, lines: { key: { version } } } (a character)
+  async load(partner) {
+    this.effect = partner?.effect || 'none';
     this.buffers = {};
-    if (!coach) return;
-    await Promise.all(Object.entries(coach.lines || {}).map(async ([key, l]) => {
+    if (!partner) return;
+    await Promise.all(Object.entries(partner.lines || {}).map(async ([key, l]) => {
       try {
-        const r = await fetch(api.url(`/api/coaches/${coach.id}/lines/${key}.wav?v=${l.version}`), { headers: api.authHeaders() });
+        const r = await fetch(api.url(`/api/characters/${partner.id}/lines/${key}.wav?v=${l.version}`), { headers: api.authHeaders() });
         if (r.ok) this.buffers[key] = await this.ctx.decodeAudioData(await r.arrayBuffer());
       } catch { /* that line falls back */ }
     }));

@@ -143,7 +143,26 @@ const MIGRATIONS = [
   `,
   // How hard building is: easy (outlines + snap), medium (no outlines, tap
   // Check), hard (medium + turn the pieces). Each kid picks their own.
-  `ALTER TABLE profiles ADD COLUMN puzzle_level TEXT NOT NULL DEFAULT 'easy';`
+  `ALTER TABLE profiles ADD COLUMN puzzle_level TEXT NOT NULL DEFAULT 'easy';`,
+  // Exercise partners replace coaches: any character with an exercise model
+  // (its own .glb with the exercise animations) can be a kid's partner, once
+  // they've built it or if it's open to everyone. Its voice lines live with it.
+  // kind 'partner' = only a partner, nothing to build.
+  // exercise: JSON { status, error, version, animations: [{ name, seconds }],
+  //   uses: { useKey: animationName }, marks: { animationName: [seconds] } }
+  `
+  ALTER TABLE characters ADD COLUMN partner_for_all INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE characters ADD COLUMN voice_effect TEXT NOT NULL DEFAULT 'none';
+  ALTER TABLE characters ADD COLUMN exercise TEXT;
+  CREATE TABLE character_lines (
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    line TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    seconds REAL NOT NULL,
+    PRIMARY KEY (character_id, line)
+  );
+  ALTER TABLE profiles ADD COLUMN partner_id INTEGER REFERENCES characters(id) ON DELETE SET NULL;
+  `
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

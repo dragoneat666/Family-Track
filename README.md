@@ -18,15 +18,20 @@ A family app for the house, starting with kids' tooth brushing:
 - **Exercises**: home exercises from an occupational therapist.
   - *Metronome*: a steady tick to clap along to, faster or slower by 5 beats
     a minute (each kid's speed is remembered on the device).
-  - *Hug & Starfish*: a 3D figure (built from simple shapes in code, no model
-    files) shows each move while a coach says it: arms on the chest, cross the
-    leg, sit up and hold while it counts, lie back as a starfish, then again
-    with the other arm on top. The wait, hold and number of rounds are set
-    per kid by a grown-up.
-  - *Coaches*: grown-ups record the lines in their own voice in the app (or
-    add audio files), pick an effect (robot, radio, giant, sparkly, echo) and
-    each kid picks their coach. Recordings are trimmed and evened out on the
-    phone and stored on the server only.
+  - *Hug & Starfish*: the kid's exercise partner shows each move while saying
+    it: arms on the chest, cross the leg, sit up and hold while it counts, lie
+    back as a starfish, then again with the other arm on top. The wait, hold
+    and number of rounds are set per kid by a grown-up.
+  - *Exercise partners*: any character can be one. Upload an exercise model
+    (one .glb from Blender with the model, props and exercise animations),
+    pick what each animation is for, and set pause marks in the browser so the
+    partner stops after each part of a move. Grown-ups record the partner's
+    lines in their own voice in the app (or add audio files) and pick an
+    effect (robot, radio, giant, sparkly, echo); recordings are trimmed and
+    evened out on the phone and stored on the server only. Kids pick their
+    partner in Settings, from the characters they've finished building plus
+    any open to everyone. Without one, a figure built from simple shapes in
+    code shows the moves.
 - **Accounts**: grown-up and kid accounts. Each device asks "Who are you?"
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
@@ -132,7 +137,23 @@ originals so it can rebuild them later.
 
 Kind **Build** is for things that snap together (a robot). **Dress up** is
 for outfit pieces on an outline: each piece should include the body part
-under it (shoes bring the feet, pants bring the legs).
+under it (shoes bring the feet, pants bring the legs). **Exercise partner
+only** has nothing to build: just the exercise model.
+
+### Exercise models
+
+One .glb per character with the model, any props and every exercise
+animation (Blender: export with all actions). Names are matched up when
+uploaded; anything else can be picked by hand afterwards:
+
+| Animation name | Used for |
+|---|---|
+| `Starfish_Sit_Up.L` / `.R` | Hug & Starfish, left/right arm on top: get into position |
+| `Starfish_Sit_Up_Rev.L` / `.R` | the same, lying back down to a starfish |
+| `Wave` (or `Cheer`) | the cheer at the end |
+
+"Get into position" needs three pause marks (after the first arm, after the
+second arm, after crossing the leg); set them under Characters → Edit.
 
 ## Developing
 

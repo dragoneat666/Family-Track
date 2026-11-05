@@ -1,31 +1,30 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
-// A kid's coach and exercise settings, kept on the server so they're the
-// same on every device. Without a kid (nobody picked) they only last while
-// the screen is open.
+// A kid's exercise partner, the partners they can pick (characters they've
+// finished building, plus any open to everyone), and their exercise settings.
+// Kept on the server so they're the same on every device.
 export function useExercises(profile) {
-  const [coaches, setCoaches] = useState([]);
-  const [state, setState] = useState({ coachId: null, settings: {} });
+  const [state, setState] = useState({ partnerId: null, partners: [], settings: {} });
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let gone = false;
-    Promise.all([api.get('/api/coaches'), profile ? api.get(`/api/kids/${profile.id}/exercises`) : null])
-      .then(([c, s]) => {
-        if (gone) return;
-        setCoaches(c);
-        if (s) setState(s);
-        setLoaded(true);
-      })
+    if (!profile) {
+      setLoaded(true);
+      return;
+    }
+    api.get(`/api/kids/${profile.id}/exercises`)
+      .then((s) => { if (!gone) { setState(s); setLoaded(true); } })
       .catch((e) => { if (!gone) { setError(e.message); setLoaded(true); } });
     return () => { gone = true; };
   }, [profile?.id]);
 
   async function save(patch) {
     setState((s) => ({
-      coachId: 'coachId' in patch ? patch.coachId : s.coachId,
+      ...s,
+      partnerId: 'partnerId' in patch ? patch.partnerId : s.partnerId,
       settings: { ...s.settings, ...(patch.settings || {}) }
     }));
     if (!profile) return;
@@ -36,6 +35,6 @@ export function useExercises(profile) {
     }
   }
 
-  const coach = coaches.find((c) => c.id === state.coachId) ?? null;
-  return { loaded, error, coaches, coach, settings: state.settings, save };
+  const partner = state.partners.find((p) => p.id === state.partnerId) ?? null;
+  return { loaded, error, partners: state.partners, partner, settings: state.settings, save };
 }

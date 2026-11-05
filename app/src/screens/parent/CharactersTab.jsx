@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api.js';
 import { useParentCall } from './useParentCall.js';
 import { DanceViewer } from '../../three/danceViewer.js';
+import PartnerEditor from './PartnerEditor.jsx';
 
 // Add characters by uploading the .glb files. The server shrinks them for
-// the tablets, so the big originals are fine to upload.
+// the tablets, so the big originals are fine to upload. Any character can also
+// be an exercise partner; some are only that (nothing to build).
 export default function CharactersTab({ onAuthLost }) {
   const { error, setError, call } = useParentCall(onAuthLost);
   const [list, setList] = useState([]);
@@ -19,7 +21,8 @@ export default function CharactersTab({ onAuthLost }) {
   useEffect(() => { load(); }, []);
 
   // While anything is being processed, check back every few seconds.
-  const busy = list.some((c) => c.status === 'processing' || c.dances.some((d) => d.status === 'processing'));
+  const busy = list.some((c) => c.status === 'processing' || c.partner?.exercise?.status === 'processing' ||
+    c.dances.some((d) => d.status === 'processing'));
   useEffect(() => {
     if (!busy) return;
     const t = setInterval(load, 3000);
@@ -46,14 +49,16 @@ export default function CharactersTab({ onAuthLost }) {
       {list.map((c) => (
         <div key={c.id} className="card">
           <div className="row spread">
-            <h3>{c.kind === 'dress' ? '👗' : '🤖'} {c.name}</h3>
+            <h3>{KIND_EMOJI[c.kind] ?? '🤖'} {c.name}</h3>
             <span className={`status ${c.status}`}>
-              {c.status === 'processing' ? 'Getting ready…' : c.status === 'error' ? 'Problem' : `${c.pieces.length} pieces`}
+              {c.status === 'processing' ? 'Getting ready…' : c.status === 'error' ? 'Problem'
+                : c.kind === 'partner' ? 'Exercise partner' : `${c.pieces.length} pieces`}
+              {c.kind !== 'partner' && c.partner?.exercise?.status === 'ready' && ' · ⭐ partner'}
             </span>
           </div>
           {c.error && <p className="error">{c.error}</p>}
           {editing === c.id ? (
-            <CharacterEditor character={c} call={call} upload={upload} onDone={() => { setEditing(null); load(); }} setError={setError} />
+            <CharacterEditor character={c} call={call} upload={upload} onDone={() => { setEditing(null); load(); }} onReload={load} setError={setError} />
           ) : (
             <div className="row">
               <button className="btn" onClick={() => setEditing(c.id)}>Edit</button>
@@ -81,6 +86,8 @@ function glbOnly(files) {
 function danceFiles(files) {
   return [...(files || [])].filter((f) => /\.(glb|fbx)$/i.test(f.name));
 }
+
+const KIND_EMOJI = { build: '🤖', dress: '👗', partner: '⭐' };
 
 const canWatch = (c) => c.hasRigged && c.dances.some((d) => d.status === 'ready');
 
@@ -149,19 +156,26 @@ function AddCharacter({ upload, setError }) {
   const pieces = useRef(null);
   const rigged = useRef(null);
   const dances = useRef(null);
+  const exercise = useRef(null);
+  const partnerOnly = kind === 'partner';
 
   async function submit(e) {
     e.preventDefault();
-    const p = glbOnly(pieces.current.files);
     if (!name.trim()) return setError('Give the character a name');
-    if (!p.length) return setError('Pick the piece files (.glb)');
+    const ex = glbOnly(exercise.current.files)[0];
+    const p = partnerOnly ? [] : glbOnly(pieces.current.files);
+    if (partnerOnly && !ex) return setError('Pick the exercise model (.glb)');
+    if (!partnerOnly && !p.length) return setError('Pick the piece files (.glb)');
     const form = new FormData();
     form.append('name', name.trim());
     form.append('kind', kind);
     p.forEach((f) => form.append('pieces', f, f.name));
-    const r = glbOnly(rigged.current.files)[0];
-    if (r) form.append('rigged', r, r.name);
-    danceFiles(dances.current.files).forEach((f) => form.append('dances', f, f.name));
+    if (ex) form.append('exercise', ex, ex.name);
+    if (!partnerOnly) {
+      const r = glbOnly(rigged.current.files)[0];
+      if (r) form.append('rigged', r, r.name);
+      danceFiles(dances.current.files).forEach((f) => form.append('dances', f, f.name));
+    }
     if (await upload('POST', '/api/parent/characters', form)) {
       setName('');
       e.target.reset();
@@ -176,24 +190,35 @@ function AddCharacter({ upload, setError }) {
         <select value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="build">Build (snap parts together)</option>
           <option value="dress">Dress up (outfit pieces)</option>
+          <option value="partner">Exercise partner only (nothing to build)</option>
         </select>
       </div>
-      <label>Pieces — pick all the piece .glb files. They must all be exported from the whole model without moving them.
-        <input type="file" multiple ref={pieces} />
+      {!partnerOnly && (
+        <>
+          <label>Pieces — pick all the piece .glb files. They must all be exported from the whole model without moving them.
+            <input type="file" multiple ref={pieces} />
+          </label>
+          <label>Dancing model (optional) — the rigged .glb
+            <input type="file" ref={rigged} />
+          </label>
+          <label>Dances (optional) — any number of animation files for the same rig: .glb, or Mixamo .fbx downloaded “Without Skin”
+            <input type="file" multiple ref={dances} />
+          </label>
+        </>
+      )}
+      <label>Exercise model {partnerOnly ? '' : '(optional) '}— one .glb with the model, props and its exercise animations
+        <input type="file" accept=".glb" ref={exercise} />
       </label>
-      <label>Dancing model (optional) — the rigged .glb
-        <input type="file" ref={rigged} />
-      </label>
-      <label>Dances (optional) — any number of animation files for the same rig: .glb, or Mixamo .fbx downloaded “Without Skin”
-        <input type="file" multiple ref={dances} />
-      </label>
-      <p className="muted small">Pieces start out unlocking from the bottom up (feet first, head last). You can reorder them afterwards.</p>
+      <p className="muted small">{partnerOnly
+        ? 'Every kid can pick an exercise-only partner. After uploading, open Edit to set pause marks and record the voice.'
+        : 'Pieces start out unlocking from the bottom up (feet first, head last). You can reorder them afterwards.'}</p>
       <button className="btn primary">Upload</button>
     </form>
   );
 }
 
-function CharacterEditor({ character, call, upload, onDone, setError }) {
+function CharacterEditor({ character, call, upload, onDone, onReload, setError }) {
+  const partnerOnly = character.kind === 'partner';
   const [name, setName] = useState(character.name);
   const [kind, setKind] = useState(character.kind);
   const [pieces, setPieces] = useState(character.pieces);
@@ -243,12 +268,22 @@ function CharacterEditor({ character, call, upload, onDone, setError }) {
     <div className="stack">
       <div className="row">
         <input value={name} onChange={(e) => setName(e.target.value)} />
-        <select value={kind} onChange={(e) => setKind(e.target.value)}>
-          <option value="build">Build</option>
-          <option value="dress">Dress up</option>
-        </select>
+        {!partnerOnly && (
+          <select value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="build">Build</option>
+            <option value="dress">Dress up</option>
+          </select>
+        )}
       </div>
 
+      {partnerOnly && (
+        <div className="row">
+          <button className="btn primary" onClick={save}>Save name</button>
+          <button className="btn" onClick={onDone}>Close</button>
+        </div>
+      )}
+
+      {!partnerOnly && <>
       <h4>Pieces, in unlock order</h4>
       <ol className="piece-list">
         {pieces.map((p, i) => (
@@ -293,6 +328,9 @@ function CharacterEditor({ character, call, upload, onDone, setError }) {
         <input type="file" multiple ref={dances} />
         <button className="btn" onClick={() => uploadFiles(dances, 'dances', `/api/parent/characters/${character.id}/dances`)}>Upload dances</button>
       </div>
+      </>}
+
+      <PartnerEditor character={character} call={call} upload={upload} setError={setError} onChange={onReload} />
 
       <button className="btn danger" onClick={removeCharacter}>Delete this character</button>
     </div>

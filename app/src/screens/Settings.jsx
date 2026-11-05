@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { App as CapApp } from '@capacitor/app';
 import { api, isNative } from '../api.js';
 import { PuzzleLevelPicker, PUZZLE_LEVELS } from './PuzzleLevel.jsx';
+import { useExercises } from '../exercises/useExercises.js';
+import { PartnerPicker } from '../exercises/Exercises.jsx';
 
 export default function Settings({ account, onBack, onSwitch, onChangeServer }) {
   const [deviceName, setDeviceName] = useState('');
@@ -12,6 +14,7 @@ export default function Settings({ account, onBack, onSwitch, onChangeServer }) 
   const [error, setError] = useState('');
 
   const [puzzleLevel, setPuzzleLevel] = useState(null);
+  const exercises = useExercises(account.isParent ? null : account);
 
   useEffect(() => {
     api.get('/api/me').then((me) => setDeviceName(me.deviceName)).catch(() => {});
@@ -76,6 +79,16 @@ export default function Settings({ account, onBack, onSwitch, onChangeServer }) 
           <div className="card stack">
             <h3>🧩 Building puzzle</h3>
             <PuzzleLevelPicker value={puzzleLevel} onChange={pickLevel} />
+          </div>
+        )}
+
+        {!account.isParent && exercises.loaded && (
+          <div className="card stack">
+            <h3>🏃 My exercise partner</h3>
+            {exercises.partners.length > 0
+              ? <PartnerPicker kid={exercises} />
+              : <p className="muted">Finish building a character to unlock an exercise partner!</p>}
+            {exercises.partners.length > 0 && <p className="muted small">Finish building more characters to unlock more partners.</p>}
           </div>
         )}
 

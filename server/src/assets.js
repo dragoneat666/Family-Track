@@ -109,6 +109,27 @@ export async function processRigged(characterId, file) {
   return tris;
 }
 
+// The exercise model: mesh, skeleton, props (a pillow…) and every exercise
+// animation, all kept. Returns the animations' names and lengths.
+export async function processExercise(characterId, file) {
+  const io = await getIO();
+  const doc = await io.read(file);
+  const animations = doc.getRoot().listAnimations().map((a) => {
+    let seconds = 0;
+    for (const s of a.listSamplers()) {
+      const times = s.getInput()?.getArray();
+      if (times?.length) seconds = Math.max(seconds, times[times.length - 1]);
+    }
+    return { name: a.getName() || 'Untitled', seconds: Math.round(seconds * 1000) / 1000 };
+  });
+  if (!animations.length) throw new Error('This file has no animations in it');
+  const tris = await shrink(doc, RIGGED_MAX_TRIANGLES);
+  const out = path.join(characterDir(characterId), 'exercise.glb');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  await io.write(out, doc);
+  return { ...tris, animations };
+}
+
 // FBX files start with "Kaydara FBX Binary" (or "; FBX" when saved as text).
 export function isFbx(file) {
   const head = Buffer.alloc(20);

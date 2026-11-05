@@ -1,4 +1,4 @@
-// Recording and tidying coach lines, all on the device: the server only ever
+// Recording and tidying partner voice lines, all on the device: the server only ever
 // gets the finished, short WAV clip for each line.
 
 const CLIP_RATE = 22050; // plenty for speech, and small

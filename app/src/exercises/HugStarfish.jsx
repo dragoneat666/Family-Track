@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { FigureScene, STARFISH, resolvePose } from '../three/figure.js';
-import { CoachPlayer } from './coachVoice.js';
-import { MAX_COUNT, numberLine } from './coachLines.js';
+import { PartnerScene } from '../three/partnerScene.js';
+import { api } from '../api.js';
+import { VoicePlayer } from './voice.js';
+import { MAX_COUNT, numberLine } from './lines.js';
+import { PARTS, canStarfish, clipFor, segments } from './partnerMoves.js';
 
 const DEFAULTS = { wait: 5, hold: 10, rounds: 4 };
 const SIT = (50 * Math.PI) / 180;
@@ -21,10 +24,10 @@ function buildSteps(rounds) {
     const round = { round: r + 1, top };
     if (r > 0) steps.push({ ...round, line: 'other_side', text: 'Other side!' });
     steps.push(
-      { ...round, line: `chest_${under}`, text: `${cap(under)} arm on your chest`, pose: { [`arm${U}`]: 'under' }, glow: [`arm${U}`], wait: true },
-      { ...round, line: `top_${top}`, text: `${cap(top)} arm on top`, pose: { [`arm${T}`]: 'over' }, glow: [`arm${T}`], wait: true },
-      { ...round, line: `leg_${top}`, text: `Cross your ${top} leg over`, pose: { [`leg${T}`]: 'over', [`leg${U}`]: 'straight' }, glow: [`leg${T}`], wait: true },
-      { ...round, line: 'sit_up', text: 'Sit up and tuck your head', pose: { spine: SIT, neck: TUCK }, glow: ['body', 'head'], wait: true },
+      { ...round, part: 0, line: `chest_${under}`, text: `${cap(under)} arm on your chest`, pose: { [`arm${U}`]: 'under' }, glow: [`arm${U}`], wait: true },
+      { ...round, part: 1, line: `top_${top}`, text: `${cap(top)} arm on top`, pose: { [`arm${T}`]: 'over' }, glow: [`arm${T}`], wait: true },
+      { ...round, part: 2, line: `leg_${top}`, text: `Cross your ${top} leg over`, pose: { [`leg${T}`]: 'over', [`leg${U}`]: 'straight' }, glow: [`leg${T}`], wait: true },
+      { ...round, part: 3, line: 'sit_up', text: 'Sit up and tuck your head', pose: { spine: SIT, neck: TUCK }, glow: ['body', 'head'], wait: true },
       { ...round, line: 'hold', text: 'Hold it!', count: true },
       { ...round, line: 'lie_back', text: 'Lie back down… starfish!', pose: STARFISH, wait: true }
     );
@@ -39,11 +42,90 @@ const poseAt = (steps, i) => steps.slice(0, i + 1).reduce((p, s) => (s.pose ? { 
 const STOP = Symbol('stop');
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The built-in figure made of shapes: used when the kid has no partner yet
+// (or theirs has no Hug & Starfish animations).
+class FigureActor {
+  constructor(container) {
+    this.figure = new FigureScene(container);
+  }
+  step(steps, i) {
+    this.figure.setPose(resolvePose(poseAt(steps, i)), 1.3);
+    this.figure.highlight(steps[i].glow || []);
+  }
+  rest() {
+    this.figure.setPose(resolvePose(STARFISH), 1);
+    this.figure.highlight([]);
+  }
+  finish() {
+    this.figure.highlight([]);
+  }
+  pause() {}
+  destroy() {
+    this.figure.destroy();
+  }
+}
+
+// The kid's partner, acting out each step with the animations made for it.
+// "Get into position" plays one part per step, stopping at the pause marks.
+class PartnerActor {
+  constructor(scene, partner) {
+    this.scene = scene;
+    this.partner = partner;
+  }
+  part(side, n) {
+    const name = clipFor(this.partner, 'in', side);
+    const parts = segments(this.partner.marks?.[name], this.scene.duration(name), PARTS.starfish.length);
+    return { name, from: parts[n][0], to: parts[n][1] };
+  }
+  starfish(side) {
+    this.scene.show(clipFor(this.partner, 'in', side), 0);
+  }
+  step(steps, i) {
+    const s = steps[i];
+    const sc = this.scene;
+    if (s.part != null) {
+      const p = this.part(s.top, s.part);
+      sc.show(p.name, p.from);
+      return sc.playTo(p.to);
+    } else if (s.count) {
+      const name = clipFor(this.partner, 'in', s.top);
+      sc.show(name, sc.duration(name));
+    } else if (s.line === 'lie_back') {
+      const out = clipFor(this.partner, 'out', s.top);
+      if (out) {
+        sc.show(out, 0);
+        return sc.playTo(sc.duration(out));
+      }
+      // No lie-back animation: play getting into position backwards.
+      const name = clipFor(this.partner, 'in', s.top);
+      sc.show(name, sc.duration(name));
+      return sc.playTo(0);
+    } else if (s.done) {
+      const cheer = this.partner.uses?.cheer;
+      if (cheer) sc.loop(cheer);
+    } else {
+      // Starting out, or between rounds: a starfish, ready for the next side.
+      const next = steps.slice(i).find((x) => x.part === 0);
+      this.starfish(next?.top ?? 'left');
+    }
+  }
+  rest() {
+    this.starfish('left');
+  }
+  finish() {}
+  pause(on) {
+    this.scene.frozen = on;
+  }
+  destroy() {
+    this.scene.destroy();
+  }
+}
+
 // Runs the steps: say the line, then wait (or count), then the next one.
 // Pausing stops the clock; back/next jump straight to a step.
 class Routine {
-  constructor({ player, figure, onChange }) {
-    Object.assign(this, { player, figure, onChange });
+  constructor({ player, actor, onChange }) {
+    Object.assign(this, { player, actor, onChange });
     this.paused = false;
     this.token = null;
   }
@@ -83,8 +165,10 @@ class Routine {
     for (; i < steps.length; i++) {
       const step = steps[i];
       this.onChange({ index: i, phase: 'say' });
-      this.figure.setPose(resolvePose(poseAt(steps, i)), 1.3);
-      this.figure.highlight(step.glow || []);
+      // The partner moves while the line is said and the countdown runs; the
+      // next step waits for the move to finish so none get cut short.
+      let moved = false;
+      Promise.resolve(this.actor.step(steps, i)).finally(() => { moved = true; });
       while (this.paused) await this.sleep(100, token);
       await this.player.play(step.line);
       this.check(token);
@@ -104,8 +188,9 @@ class Routine {
       } else if (!step.done) {
         await this.sleep(600, token);
       }
+      while (!moved && !step.done) await this.sleep(50, token);
     }
-    this.figure.highlight([]);
+    this.actor.finish();
     this.onChange({ index: steps.length - 1, phase: 'finished' });
     this.token = null;
   }
@@ -118,29 +203,59 @@ export default function HugStarfish({ kid, grownUp, onExit }) {
   const [now, setNow] = useState(null); // { index, phase, count, left }
   const [paused, setPaused] = useState(false);
   const [voiceReady, setVoiceReady] = useState(false);
+  const [actorReady, setActorReady] = useState(false);
   const settings = { ...DEFAULTS, ...(kid.settings.starfish || {}) };
   const [steps, setSteps] = useState(() => buildSteps(settings.rounds));
+  const partner = canStarfish(kid.partner) ? kid.partner : null;
 
   useEffect(() => {
-    const figure = new FigureScene(holder.current);
-    player.current = new CoachPlayer();
-    routine.current = new Routine({ player: player.current, figure, onChange: setNow });
+    player.current = new VoicePlayer();
+    routine.current = new Routine({ player: player.current, actor: null, onChange: setNow });
     let wakeLock = null;
     navigator.wakeLock?.request('screen').then((l) => { wakeLock = l; }).catch(() => {});
     return () => {
       routine.current.stop();
       player.current.destroy();
-      figure.destroy();
       wakeLock?.release?.().catch(() => {});
     };
   }, []);
 
-  // Load the coach's lines whenever the coach changes.
+  // The partner (or the shape figure), once we know who the kid picked.
+  useEffect(() => {
+    if (!kid.loaded) return;
+    let actor = null;
+    let gone = false;
+    setActorReady(false);
+    (async () => {
+      if (partner) {
+        const scene = new PartnerScene(holder.current);
+        try {
+          await scene.load(api.url(`/api/characters/${partner.id}/exercise.glb?v=${partner.version}`), api.authHeaders());
+          actor = new PartnerActor(scene, partner);
+        } catch (e) {
+          console.error(e);
+          scene.destroy();
+        }
+      }
+      if (gone) return actor?.destroy();
+      actor ??= new FigureActor(holder.current);
+      actor.rest();
+      routine.current.actor = actor;
+      setActorReady(true);
+    })();
+    return () => {
+      gone = true;
+      routine.current.stop();
+      actor?.destroy();
+    };
+  }, [kid.loaded, partner?.id, partner?.version, JSON.stringify(partner?.marks), JSON.stringify(partner?.uses)]);
+
+  // Load the partner's voice lines whenever the partner changes.
   useEffect(() => {
     if (!kid.loaded) return;
     setVoiceReady(false);
-    player.current.load(kid.coach).finally(() => setVoiceReady(true));
-  }, [kid.loaded, kid.coach?.id, JSON.stringify(kid.coach?.lines)]);
+    player.current.load(kid.partner).finally(() => setVoiceReady(true));
+  }, [kid.loaded, kid.partner?.id, kid.partner?.effect, JSON.stringify(kid.partner?.lines)]);
 
   function change(key, value) {
     kid.save({ settings: { starfish: { ...settings, [key]: value } } });
@@ -163,14 +278,15 @@ export default function HugStarfish({ kid, grownUp, onExit }) {
 
   function togglePause() {
     routine.current.paused = !paused;
+    routine.current.actor?.pause(!paused);
     if (!paused) player.current.stopAll();
     setPaused(!paused);
   }
 
   function stop() {
     routine.current.stop();
-    routine.current.figure.setPose(resolvePose(STARFISH), 1);
-    routine.current.figure.highlight([]);
+    routine.current.actor?.pause(false);
+    routine.current.actor?.rest();
     setNow(null);
   }
 
@@ -183,7 +299,7 @@ export default function HugStarfish({ kid, grownUp, onExit }) {
       <header className="build-header">
         <button className="btn" onClick={onExit}>← Back</button>
         <div className="build-title">⭐ Hug &amp; Starfish</div>
-        <span className="coach-chip">{kid.coach ? `${kid.coach.emoji} ${kid.coach.name}` : '🔕 No coach'}</span>
+        {kid.partner && <span className="coach-chip">With {kid.partner.name}</span>}
       </header>
 
       <div className="starfish-body">
@@ -200,7 +316,9 @@ export default function HugStarfish({ kid, grownUp, onExit }) {
                 {settings.rounds > 1 ? 'The top arm switches every round, starting with the left.' : 'Left arm on top.'}
                 {!grownUp && ' A grown-up can change these.'}
               </p>
-              <button className="btn big primary" onClick={start} disabled={!voiceReady}>{voiceReady ? 'Start' : 'Getting the coach ready…'}</button>
+              <button className="btn big primary" onClick={start} disabled={!voiceReady || !actorReady}>
+                {voiceReady && actorReady ? 'Start' : `Getting ${kid.partner?.name ?? 'ready'}…`}
+              </button>
             </>
           )}
 
