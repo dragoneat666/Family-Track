@@ -162,7 +162,10 @@ const MIGRATIONS = [
     PRIMARY KEY (character_id, line)
   );
   ALTER TABLE profiles ADD COLUMN partner_id INTEGER REFERENCES characters(id) ON DELETE SET NULL;
-  `
+  `,
+  // A partner's own wording for lines: JSON { lineKey: text }. Missing = the
+  // app's standard wording.
+  `ALTER TABLE characters ADD COLUMN phrases TEXT;`
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

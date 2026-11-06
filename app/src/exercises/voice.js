@@ -20,6 +20,7 @@ export class VoicePlayer {
   // partner: { id, effect, lines: { key: { version } } } (a character)
   async load(partner) {
     this.effect = partner?.effect || 'none';
+    this.phrases = partner?.phrases || {};
     this.buffers = {};
     if (!partner) return;
     await Promise.all(Object.entries(partner.lines || {}).map(async ([key, l]) => {
@@ -68,7 +69,7 @@ export class VoicePlayer {
   }
 
   fallback(key) {
-    const text = lineText(key);
+    const text = lineText(key, this.phrases);
     if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
       return new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance(text);

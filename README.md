@@ -28,7 +28,12 @@ A family app for the house, starting with kids' tooth brushing:
     partner stops after each part of a move. Grown-ups record the partner's
     lines in their own voice in the app (or add audio files) and pick an
     effect (robot, radio, giant, sparkly, echo); recordings are trimmed and
-    evened out on the phone and stored on the server only. Kids pick their
+    evened out on the phone and stored on the server only. One long recording
+    of all the lines (from a voice tool, say) can be split into lines in the
+    app: it finds each line by the pauses and matches them up in order, with a
+    waveform, play buttons and fixes for skipped or joined clips. The words of
+    any line can be changed per partner; the screen and the device's own voice
+    (for lines not recorded) use them too. Kids pick their
     partner in Settings, from the characters they've finished building plus
     any open to everyone. Without one, a figure built from simple shapes in
     code shows the moves.

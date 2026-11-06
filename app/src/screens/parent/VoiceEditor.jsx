@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api.js';
-import { LINE_GROUPS, ALL_LINES, EFFECTS } from '../../exercises/lines.js';
+import { LINE_GROUPS, ALL_LINES, EFFECTS, lineText, defaultText } from '../../exercises/lines.js';
 import { VoicePlayer } from '../../exercises/voice.js';
 import { MicRecorder, cleanClip, toWav, clipFromFile, canRecord } from '../../exercises/audioTools.js';
+import AudioSplitter from './AudioSplitter.jsx';
 
 // A partner's voice: an effect, and every line recorded in a grown-up's own
 // voice (or added as a file). Lines nobody recorded are just a tick.
 export default function VoiceEditor({ character, call, setError, onChange }) {
-  const voice = { id: character.id, name: character.name, effect: character.partner.effect, lines: character.partner.lines };
+  const phrases = character.partner.phrases || {};
+  const voice = { id: character.id, name: character.name, effect: character.partner.effect, lines: character.partner.lines, phrases };
+  const textOf = (key) => lineText(key, phrases);
+  const withText = (list) => list.map((l) => ({ ...l, text: textOf(l.key) }));
   const [busy, setBusy] = useState('');
+  const [editing, setEditing] = useState(null); // { key, text }
+  const [reRecord, setReRecord] = useState({}); // key -> true: words changed since it was recorded
+  const [splitting, setSplitting] = useState(false);
   const [recording, setRecording] = useState(null); // lines being recorded
   const player = useRef(null);
   const loadedFor = useRef('');
@@ -43,11 +50,23 @@ export default function VoiceEditor({ character, call, setError, onChange }) {
     try {
       const wav = await clipFromFile(file);
       await uploadLine(character.id, key, wav);
+      setReRecord((r) => ({ ...r, [key]: false }));
       onChange();
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy('');
+    }
+  }
+
+  async function saveText(key, text) {
+    setEditing(null);
+    text = text.trim();
+    if (text === textOf(key) || (!text && !phrases[key])) return;
+    const value = text === defaultText(key) ? '' : text;
+    if (await call(() => api.put(`/api/parent/characters/${character.id}/partner`, { phrases: { [key]: value } }))) {
+      if (voice.lines[key]) setReRecord((r) => ({ ...r, [key]: true }));
+      onChange();
     }
   }
 
@@ -60,7 +79,12 @@ export default function VoiceEditor({ character, call, setError, onChange }) {
   return (
     <div className="stack">
       {recording && (
-        <RecordSession voice={voice} lines={recording} onExit={() => { setRecording(null); loadedFor.current = ''; onChange(); }} />
+        <RecordSession voice={voice} lines={withText(recording)} onExit={(saved) => {
+          setRecording(null);
+          loadedFor.current = '';
+          setReRecord((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !saved.includes(k))));
+          onChange();
+        }} />
       )}
       <label>Voice effect (added while it plays, so you can change it any time)
         <select value={voice.effect} onChange={(e) => setEffect(e.target.value)}>
@@ -80,6 +104,16 @@ export default function VoiceEditor({ character, call, setError, onChange }) {
           )}
         </div>
       )}
+      <p className="muted small">Tap ✏️ to change what {voice.name} says (and what the screen shows). Record a line again after changing its words.</p>
+      {splitting ? (
+        <AudioSplitter character={character} textOf={textOf}
+          upload={(key, wav) => uploadLine(character.id, key, wav).then(() => setReRecord((r) => ({ ...r, [key]: false })))}
+          onSaved={() => { loadedFor.current = ''; onChange(); }} onClose={() => setSplitting(false)} />
+      ) : (
+        <div className="row wrap">
+          <button className="btn" onClick={() => setSplitting(true)}>✂️ Split one long recording into lines</button>
+        </div>
+      )}
       <input type="file" accept="audio/*,video/*" ref={fileInput} style={{ display: 'none' }} onChange={uploadFile} />
       {LINE_GROUPS.map((g) => (
         <div key={g.title} className="stack">
@@ -89,7 +123,25 @@ export default function VoiceEditor({ character, call, setError, onChange }) {
               const have = voice.lines[l.key];
               return (
                 <li key={l.key} className="row">
-                  <span className="line-text">“{l.text}”</span>
+                  {editing?.key === l.key ? (
+                    <input className="line-text" autoFocus maxLength={120} value={editing.text}
+                      onChange={(e) => setEditing({ key: l.key, text: e.target.value })}
+                      onBlur={() => saveText(l.key, editing.text)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                        if (e.key === 'Escape') setEditing(null);
+                      }} />
+                  ) : (
+                    <span className="line-text">“{textOf(l.key)}”
+                      {phrases[l.key] && <span className="muted small"> (was “{l.text}”)</span>}
+                      {reRecord[l.key] && <span className="status warn small"> record again</span>}
+                    </span>
+                  )}
+                  <button className="btn small" onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setEditing(editing?.key === l.key ? null : { key: l.key, text: textOf(l.key) })} aria-label="Change the words">✏️</button>
+                  {phrases[l.key] && editing?.key !== l.key && (
+                    <button className="btn small" onClick={() => saveText(l.key, l.text)} title="Back to the standard words" aria-label="Back to the standard words">↺</button>
+                  )}
                   <span className={have ? 'status good' : 'status'}>{busy === l.key ? 'saving…' : have ? `✓ ${have.seconds.toFixed(1)} s` : '—'}</span>
                   <button className="btn small" onClick={() => hear(l.key)} disabled={!have} aria-label="Play">▶</button>
                   {canRecord && <button className="btn small" onClick={() => setRecording([l])} aria-label="Record">🎙️</button>}
@@ -202,6 +254,7 @@ function RecordSession({ voice, lines, onExit }) {
     player.current.play(last);
   }
 
+  const exit = () => onExit(Object.keys(saved).filter((k) => saved[k] === 'saved'));
   const done = index >= lines.length;
   const failed = Object.entries(saved).filter(([, v]) => v !== 'saving' && v !== 'saved');
   const saving = Object.values(saved).filter((v) => v === 'saving').length;
@@ -209,7 +262,7 @@ function RecordSession({ voice, lines, onExit }) {
   return (
     <div className="exercise-screen record-screen">
       <header className="build-header">
-        <button className="btn" onClick={onExit} disabled={saving > 0}>← Back</button>
+        <button className="btn" onClick={exit} disabled={saving > 0}>← Back</button>
         <div className="build-title">🎙️ {voice.name}</div>
       </header>
       <div className="record-body">
@@ -237,10 +290,10 @@ function RecordSession({ voice, lines, onExit }) {
         {done && (
           <>
             <p className="record-line">{saving ? 'Saving…' : failed.length ? 'Some lines were not saved' : '✓ All saved'}</p>
-            {failed.map(([k, why]) => <p key={k} className="error">“{ALL_LINES.find((l) => l.key === k)?.text}”: {why}</p>)}
+            {failed.map(([k, why]) => <p key={k} className="error">“{lines.find((l) => l.key === k)?.text ?? k}”: {why}</p>)}
             <div className="row wrap record-buttons">
               {last && <button className="btn" onClick={hearLast}>▶ Hear the last one</button>}
-              <button className="btn big primary" onClick={onExit} disabled={saving > 0}>Done</button>
+              <button className="btn big primary" onClick={exit} disabled={saving > 0}>Done</button>
             </div>
           </>
         )}

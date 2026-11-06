@@ -255,7 +255,7 @@ export default function HugStarfish({ kid, grownUp, onExit }) {
     if (!kid.loaded) return;
     setVoiceReady(false);
     player.current.load(kid.partner).finally(() => setVoiceReady(true));
-  }, [kid.loaded, kid.partner?.id, kid.partner?.effect, JSON.stringify(kid.partner?.lines)]);
+  }, [kid.loaded, kid.partner?.id, kid.partner?.effect, JSON.stringify(kid.partner?.lines), JSON.stringify(kid.partner?.phrases)]);
 
   function change(key, value) {
     kid.save({ settings: { starfish: { ...settings, [key]: value } } });
@@ -325,7 +325,7 @@ export default function HugStarfish({ kid, grownUp, onExit }) {
           {now && (
             <>
               {step?.round && <p className="starfish-round">Round {step.round} of {rounds} · {step.top} arm on top</p>}
-              <p className="starfish-say">{now.phase === 'finished' ? '🎉 All done! Great job!' : step?.text}</p>
+              <p className="starfish-say">{now.phase === 'finished' ? `🎉 ${kid.partner?.phrases?.done || 'All done! Great job!'}` : (kid.partner?.phrases?.[step?.line] || step?.text)}</p>
               <div className={`starfish-big ${now.phase}`}>
                 {now.phase === 'count' && now.count}
                 {now.phase === 'wait' && <>⏳ {now.left}</>}

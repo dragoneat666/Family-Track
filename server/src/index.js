@@ -360,7 +360,7 @@ function partnerDetail(c) {
   return {
     id: c.id, name: c.name, kind: c.kind, effect: c.voice_effect,
     version: ex.version ?? 0, uses: ex.uses ?? {}, marks: ex.marks ?? {}, animations: ex.animations ?? [],
-    lines: voiceLines(c.id)
+    lines: voiceLines(c.id), phrases: safeJson(c.phrases)
   };
 }
 
@@ -600,6 +600,7 @@ function characterDetail(c) {
       forAll: !!c.partner_for_all,
       effect: c.voice_effect,
       lines: voiceLines(c.id),
+      phrases: safeJson(c.phrases),
       exercise: ex && { status: ex.status, error: ex.error ?? null, version: ex.version ?? 0, animations: ex.animations ?? [], uses: ex.uses ?? {}, marks: ex.marks ?? {} }
     }
   };
@@ -684,6 +685,17 @@ parent.put('/characters/:id/partner', (req, res) => {
   const b = req.body || {};
   if ('forAll' in b) db.prepare('UPDATE characters SET partner_for_all = ? WHERE id = ?').run(b.forAll ? 1 : 0, c.id);
   if (EFFECTS.includes(b.effect)) db.prepare('UPDATE characters SET voice_effect = ? WHERE id = ?').run(b.effect, c.id);
+  // phrases: { lineKey: text } merged in; an empty text goes back to the standard wording.
+  if (b.phrases && typeof b.phrases === 'object') {
+    const phrases = safeJson(c.phrases);
+    for (const [key, text] of Object.entries(b.phrases)) {
+      if (!LINE_KEY.test(key)) continue;
+      const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      if (clean) phrases[key] = clean;
+      else delete phrases[key];
+    }
+    db.prepare('UPDATE characters SET phrases = ? WHERE id = ?').run(JSON.stringify(phrases), c.id);
+  }
   if (b.uses || b.marks) {
     const ex = safeJson(c.exercise);
     const names = new Set((ex.animations || []).map((a) => a.name));

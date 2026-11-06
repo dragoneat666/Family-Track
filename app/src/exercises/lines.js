@@ -36,7 +36,9 @@ export const LINE_GROUPS = [
 ];
 
 export const ALL_LINES = LINE_GROUPS.flatMap((g) => g.lines);
-export const lineText = (key) => ALL_LINES.find((l) => l.key === key)?.text ?? key;
+// A partner can have its own wording for any line (phrases: { key: text }).
+export const defaultText = (key) => ALL_LINES.find((l) => l.key === key)?.text ?? key;
+export const lineText = (key, phrases) => phrases?.[key] || defaultText(key);
 
 // Voice effects the app adds while playing a partner's lines.
 export const EFFECTS = [

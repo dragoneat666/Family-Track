@@ -129,9 +129,8 @@ export async function toWav(samples, rate) {
   return new Blob([view.buffer], { type: 'audio/wav' });
 }
 
-// Any audio or video file (mp3, m4a, wav, a saved TikTok video…) as one
-// cleaned-up clip.
-export async function clipFromFile(file) {
+// Any audio or video file, as mono samples.
+export async function decodeFile(file) {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   try {
     const buf = await ctx.decodeAudioData(await file.arrayBuffer());
@@ -140,12 +139,59 @@ export async function clipFromFile(file) {
       const d = buf.getChannelData(c);
       for (let i = 0; i < d.length; i++) mono[i] += d[i] / buf.numberOfChannels;
     }
-    const clean = cleanClip(mono, buf.sampleRate);
-    if (!clean) throw new Error("That file sounds silent.");
-    return toWav(clean, buf.sampleRate);
-  } catch (e) {
-    throw new Error(e.message === 'That file sounds silent.' ? e.message : "Couldn't read that file. Try an mp3, m4a, wav or video file.");
+    return { samples: mono, rate: buf.sampleRate };
+  } catch {
+    throw new Error("Couldn't read that file. Try an mp3, m4a, wav or video file.");
   } finally {
     ctx.close().catch(() => {});
   }
+}
+
+// Any audio or video file (mp3, m4a, wav, a saved TikTok video…) as one
+// cleaned-up clip.
+export async function clipFromFile(file) {
+  const { samples, rate } = await decodeFile(file);
+  const clean = cleanClip(samples, rate);
+  if (!clean) throw new Error('That file sounds silent.');
+  return toWav(clean, rate);
+}
+
+// Loudness of every 10 ms of a recording, for finding words and drawing it.
+export function levelsOf(samples, rate) {
+  const frame = Math.max(1, Math.round(rate * 0.01));
+  const levels = new Float32Array(Math.floor(samples.length / frame));
+  for (let f = 0; f < levels.length; f++) {
+    let sum = 0;
+    for (let j = f * frame; j < (f + 1) * frame; j++) sum += samples[j] * samples[j];
+    levels[f] = Math.sqrt(sum / frame);
+  }
+  return levels;
+}
+
+// Where someone is talking in one long recording: [{ start, end }] in
+// seconds. Quiet shorter than `gap` seconds counts as a pause inside a line
+// (a comma, a breath); longer quiet starts the next line.
+export function findSpeech(levels, { gap = 0.6, shortest = 0.15 } = {}) {
+  let loudest = 0;
+  for (const l of levels) loudest = Math.max(loudest, l);
+  if (loudest < 0.015) return [];
+  const threshold = Math.max(0.01, loudest * 0.06);
+  const gapFrames = Math.round(gap * 100);
+  const out = [];
+  let start = -1;
+  let lastLoud = -1;
+  for (let f = 0; f < levels.length; f++) {
+    if (levels[f] <= threshold) continue;
+    if (start >= 0 && f - lastLoud > gapFrames) {
+      out.push([start, lastLoud]);
+      start = -1;
+    }
+    if (start < 0) start = f;
+    lastLoud = f;
+  }
+  if (start >= 0) out.push([start, lastLoud]);
+  return out
+    .filter(([a, b]) => (b - a + 1) / 100 >= shortest)
+    .map(([a, b]) => ({ start: Math.max(0, a - 8) / 100, end: Math.min(levels.length, b + 15) / 100 }))
+    .map((r, i, all) => ({ start: r.start, end: Math.min(r.end, all[i + 1]?.start ?? r.end) }));
 }
