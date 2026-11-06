@@ -1,6 +1,9 @@
 import { api } from '../api.js';
 import { tick, audioContext } from './sounds.js';
-import { lineText } from './lines.js';
+import { lineWords, isNumberLine } from './lines.js';
+
+// How much faster (or slower) each effect plays a recording.
+const RATES = { robot: 0.86, deep: 0.8, high: 1.17 };
 
 // Plays an exercise partner's recorded lines through its voice effect. A line
 // the partner doesn't have is spoken by the device's own voice if it has one (browsers
@@ -17,18 +20,30 @@ export class VoicePlayer {
     return this.ctx.resume();
   }
 
-  // partner: { id, effect, lines: { key: { version } } } (a character)
-  async load(partner) {
+  // partner: { id, effect, voice: [{ key, text, version }] } (a character).
+  // Only lines in `only` (keys) if given.
+  async load(partner, only = null) {
     this.effect = partner?.effect || 'none';
-    this.phrases = partner?.phrases || {};
+    this.voice = partner?.voice || [];
     this.buffers = {};
     if (!partner) return;
-    await Promise.all(Object.entries(partner.lines || {}).map(async ([key, l]) => {
+    const want = only ? new Set(only) : null;
+    await Promise.all(this.voice.filter((l) => l.version && (!want || want.has(l.key))).map(async (l) => {
       try {
-        const r = await fetch(api.url(`/api/characters/${partner.id}/lines/${key}.wav?v=${l.version}`), { headers: api.authHeaders() });
-        if (r.ok) this.buffers[key] = await this.ctx.decodeAudioData(await r.arrayBuffer());
+        const r = await fetch(api.url(`/api/characters/${partner.id}/lines/${l.key}.wav?v=${l.version}`), { headers: api.authHeaders() });
+        if (r.ok) this.buffers[l.key] = await this.ctx.decodeAudioData(await r.arrayBuffer());
       } catch { /* that line falls back */ }
     }));
+  }
+
+  // How long a line takes to say, in seconds (a guess from the words for a
+  // line nobody recorded).
+  duration(key) {
+    const b = this.buffers[key];
+    if (b) return b.duration / (RATES[this.effect] || 1);
+    if (isNumberLine(key)) return 0.5;
+    const words = lineWords(this.voice, key).split(/\s+/).filter(Boolean).length;
+    return words ? 0.4 + words * 0.36 : 0;
   }
 
   // Use a clip that isn't saved yet (previewing a fresh recording).
@@ -69,7 +84,8 @@ export class VoicePlayer {
   }
 
   fallback(key) {
-    const text = lineText(key, this.phrases);
+    const text = lineWords(this.voice, key);
+    if (!text) return Promise.resolve();
     if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
       return new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance(text);
@@ -121,7 +137,7 @@ function applyEffect(ctx, src, out, effect) {
       metal.output.connect(out);
       mix.connect(out);
       room(ctx, mix, out, 0.9, 0.25);
-      return 0.86;
+      return RATES.robot;
     }
     case 'radio': {
       const low = ctx.createBiquadFilter();
@@ -143,11 +159,11 @@ function applyEffect(ctx, src, out, effect) {
     case 'deep':
       src.connect(out);
       room(ctx, src, out, 0.6, 0.15);
-      return 0.8;
+      return RATES.deep;
     case 'high':
       src.connect(out);
       room(ctx, src, out, 1.8, 0.35, true);
-      return 1.17;
+      return RATES.high;
     case 'echo': {
       src.connect(out);
       const d = ctx.createDelay(1);

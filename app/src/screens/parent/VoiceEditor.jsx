@@ -1,44 +1,48 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api.js';
-import { LINE_GROUPS, ALL_LINES, EFFECTS, lineText, defaultText } from '../../exercises/lines.js';
+import { EFFECTS, wordLines, numberLines } from '../../exercises/lines.js';
 import { VoicePlayer } from '../../exercises/voice.js';
 import { MicRecorder, cleanClip, toWav, clipFromFile, canRecord } from '../../exercises/audioTools.js';
 import AudioSplitter from './AudioSplitter.jsx';
 
-// A partner's voice: an effect, and every line recorded in a grown-up's own
-// voice (or added as a file). Lines nobody recorded are just a tick.
+// A partner's voice library: an effect, and every line it can say with its
+// words, recorded in a grown-up's own voice, added as a file, or split out of
+// one long recording. Exercises pick their lines from here. Lines nobody
+// recorded are said by the device's voice (or are a tick).
 export default function VoiceEditor({ character, call, setError, onChange }) {
-  const phrases = character.partner.phrases || {};
-  const voice = { id: character.id, name: character.name, effect: character.partner.effect, lines: character.partner.lines, phrases };
-  const textOf = (key) => lineText(key, phrases);
-  const withText = (list) => list.map((l) => ({ ...l, text: textOf(l.key) }));
+  const library = character.partner.voice;
+  const voice = { id: character.id, name: character.name, effect: character.partner.effect };
   const [busy, setBusy] = useState('');
-  const [editing, setEditing] = useState(null); // { key, text }
-  const [reRecord, setReRecord] = useState({}); // key -> true: words changed since it was recorded
-  const [splitting, setSplitting] = useState(false);
   const [recording, setRecording] = useState(null); // lines being recorded
-  const player = useRef(null);
-  const loadedFor = useRef('');
+  const [editing, setEditing] = useState(null); // { key, text }
+  const [splitting, setSplitting] = useState(false);
+  const [adding, setAdding] = useState('');
+  const hear = useHear(character);
   const fileFor = useRef(null);
   const fileInput = useRef(null);
 
-  useEffect(() => () => player.current?.destroy(), []);
+  const words = wordLines(library);
+  const numbers = numberLines(library);
+  const usedIn = usage(character);
 
   async function setEffect(effect) {
     if (await call(() => api.put(`/api/parent/characters/${character.id}/partner`, { effect }))) onChange();
   }
 
-  async function hear(key) {
-    player.current ??= new VoicePlayer();
-    await player.current.resume();
-    const stamp = JSON.stringify(voice.lines);
-    if (loadedFor.current !== stamp) {
-      await player.current.load(voice);
-      loadedFor.current = stamp;
+  async function addLines() {
+    const texts = adding.split('\n').map((t) => t.trim()).filter(Boolean);
+    if (!texts.length) return;
+    if (await call(() => api.post(`/api/parent/characters/${character.id}/lines`, { texts }))) {
+      setAdding('');
+      onChange();
     }
-    player.current.effect = voice.effect;
-    player.current.stopAll();
-    player.current.play(key);
+  }
+
+  async function saveWords(key, text) {
+    setEditing(null);
+    const line = library.find((l) => l.key === key);
+    if (!text.trim() || text.trim() === line?.text) return;
+    if (await call(() => api.put(`/api/parent/characters/${character.id}/lines/${key}/words`, { text }))) onChange();
   }
 
   async function uploadFile(e) {
@@ -48,9 +52,7 @@ export default function VoiceEditor({ character, call, setError, onChange }) {
     if (!file || !key) return;
     setBusy(key);
     try {
-      const wav = await clipFromFile(file);
-      await uploadLine(character.id, key, wav);
-      setReRecord((r) => ({ ...r, [key]: false }));
+      await uploadLine(character.id, key, await clipFromFile(file));
       onChange();
     } catch (err) {
       setError(err.message);
@@ -59,105 +61,114 @@ export default function VoiceEditor({ character, call, setError, onChange }) {
     }
   }
 
-  async function saveText(key, text) {
-    setEditing(null);
-    text = text.trim();
-    if (text === textOf(key) || (!text && !phrases[key])) return;
-    const value = text === defaultText(key) ? '' : text;
-    if (await call(() => api.put(`/api/parent/characters/${character.id}/partner`, { phrases: { [key]: value } }))) {
-      if (voice.lines[key]) setReRecord((r) => ({ ...r, [key]: true }));
-      onChange();
-    }
+  async function remove(l) {
+    const where = usedIn[l.key];
+    const ask = l.key.startsWith('n') && /^n\d+$/.test(l.key)
+      ? `Delete the recording of “${l.text}”?`
+      : `Delete the line “${l.text}”${where ? `? It's used in ${where.join(', ')}, which will have no voice there` : ''}?`;
+    if (!window.confirm(ask)) return;
+    if (await call(() => api.del(`/api/parent/characters/${character.id}/lines/${l.key}`))) onChange();
   }
 
-  async function removeLine(key) {
-    if (await call(() => api.del(`/api/parent/characters/${character.id}/lines/${key}`))) onChange();
-  }
+  const missing = words.filter((l) => !l.version);
 
-  const missing = ALL_LINES.filter((l) => !voice.lines[l.key]);
+  const row = (l, canEdit) => (
+    <li key={l.key} className="row">
+      {editing?.key === l.key ? (
+        <input className="line-text" autoFocus maxLength={160} value={editing.text}
+          onChange={(e) => setEditing({ key: l.key, text: e.target.value })}
+          onBlur={() => saveWords(l.key, editing.text)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+            if (e.key === 'Escape') setEditing(null);
+          }} />
+      ) : (
+        <span className="line-text">“{l.text}”{usedIn[l.key] && <span className="muted small"> · {usedIn[l.key].join(', ')}</span>}</span>
+      )}
+      {canEdit && (
+        <button className="btn small" onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setEditing(editing?.key === l.key ? null : { key: l.key, text: l.text })} aria-label="Change the words">✏️</button>
+      )}
+      <span className={l.version ? 'status good' : 'status'}>{busy === l.key ? 'saving…' : l.version ? `✓ ${l.seconds.toFixed(1)} s` : '—'}</span>
+      <button className="btn small" onClick={() => hear(l.key)} disabled={!l.version} aria-label="Play">▶</button>
+      {canRecord && <button className="btn small" onClick={() => setRecording([l])} aria-label="Record">🎙️</button>}
+      <button className="btn small" onClick={() => { fileFor.current = l.key; fileInput.current.click(); }} aria-label="Add a file">📁</button>
+      <button className="btn small danger" onClick={() => remove(l)} disabled={!canEdit && !l.version} aria-label="Delete">✕</button>
+    </li>
+  );
 
   return (
     <div className="stack">
       {recording && (
-        <RecordSession voice={voice} lines={withText(recording)} onExit={(saved) => {
-          setRecording(null);
-          loadedFor.current = '';
-          setReRecord((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !saved.includes(k))));
-          onChange();
-        }} />
+        <RecordSession voice={voice} lines={recording} onExit={() => { setRecording(null); hear.reset(); onChange(); }} />
       )}
       <label>Voice effect (added while it plays, so you can change it any time)
         <select value={voice.effect} onChange={(e) => setEffect(e.target.value)}>
           {EFFECTS.map((x) => <option key={x.key} value={x.key}>{x.name}</option>)}
         </select>
       </label>
-      <p className="muted small">{ALL_LINES.length - missing.length} of {ALL_LINES.length} lines recorded. You only need the numbers up to the longest hold.</p>
       {!canRecord && <p className="muted small">Recording needs the microphone, which works in the Android app. Here you can still
-        add audio or video files (a voice changer's output, a saved video…) with 📁.</p>}
-      {canRecord && (
-        <div className="row wrap">
-          <button className="btn primary" onClick={() => setRecording(missing.length ? missing : ALL_LINES)}>
-            🎙️ {missing.length === ALL_LINES.length ? 'Record all the lines' : missing.length ? `Record the ${missing.length} missing lines` : 'Record them all again'}
-          </button>
-          {missing.length > 0 && missing.length < ALL_LINES.length && (
-            <button className="btn" onClick={() => setRecording(ALL_LINES)}>Record them all again</button>
-          )}
-        </div>
-      )}
-      <p className="muted small">Tap ✏️ to change what {voice.name} says (and what the screen shows). Record a line again after changing its words.</p>
-      {splitting ? (
-        <AudioSplitter character={character} textOf={textOf}
-          upload={(key, wav) => uploadLine(character.id, key, wav).then(() => setReRecord((r) => ({ ...r, [key]: false })))}
-          onSaved={() => { loadedFor.current = ''; onChange(); }} onClose={() => setSplitting(false)} />
-      ) : (
-        <div className="row wrap">
-          <button className="btn" onClick={() => setSplitting(true)}>✂️ Split one long recording into lines</button>
-        </div>
+        add audio or video files (a voice tool's output, a saved video…) with 📁, or split one long file into lines.</p>}
+      <div className="row wrap">
+        {canRecord && missing.length > 0 && (
+          <button className="btn primary" onClick={() => setRecording(missing)}>🎙️ Record the {missing.length} missing {missing.length === 1 ? 'line' : 'lines'}</button>
+        )}
+        {!splitting && <button className="btn" onClick={() => setSplitting(true)}>✂️ Split one long recording into lines</button>}
+      </div>
+      {splitting && (
+        <AudioSplitter targets={[...words, ...numbers]} character={character}
+          upload={(key, wav) => uploadLine(character.id, key, wav)}
+          onSaved={() => { hear.reset(); onChange(); }} onClose={() => setSplitting(false)} />
       )}
       <input type="file" accept="audio/*,video/*" ref={fileInput} style={{ display: 'none' }} onChange={uploadFile} />
-      {LINE_GROUPS.map((g) => (
-        <div key={g.title} className="stack">
-          <b>{g.title}</b>
-          <ul className="line-list">
-            {g.lines.map((l) => {
-              const have = voice.lines[l.key];
-              return (
-                <li key={l.key} className="row">
-                  {editing?.key === l.key ? (
-                    <input className="line-text" autoFocus maxLength={120} value={editing.text}
-                      onChange={(e) => setEditing({ key: l.key, text: e.target.value })}
-                      onBlur={() => saveText(l.key, editing.text)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') e.currentTarget.blur();
-                        if (e.key === 'Escape') setEditing(null);
-                      }} />
-                  ) : (
-                    <span className="line-text">“{textOf(l.key)}”
-                      {phrases[l.key] && <span className="muted small"> (was “{l.text}”)</span>}
-                      {reRecord[l.key] && <span className="status warn small"> record again</span>}
-                    </span>
-                  )}
-                  <button className="btn small" onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => setEditing(editing?.key === l.key ? null : { key: l.key, text: textOf(l.key) })} aria-label="Change the words">✏️</button>
-                  {phrases[l.key] && editing?.key !== l.key && (
-                    <button className="btn small" onClick={() => saveText(l.key, l.text)} title="Back to the standard words" aria-label="Back to the standard words">↺</button>
-                  )}
-                  <span className={have ? 'status good' : 'status'}>{busy === l.key ? 'saving…' : have ? `✓ ${have.seconds.toFixed(1)} s` : '—'}</span>
-                  <button className="btn small" onClick={() => hear(l.key)} disabled={!have} aria-label="Play">▶</button>
-                  {canRecord && <button className="btn small" onClick={() => setRecording([l])} aria-label="Record">🎙️</button>}
-                  <button className="btn small" onClick={() => { fileFor.current = l.key; fileInput.current.click(); }} aria-label="Add a file">📁</button>
-                  <button className="btn small danger" onClick={() => removeLine(l.key)} disabled={!have} aria-label="Delete">✕</button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
+
+      <b>🗣️ Lines ({words.length - missing.length} of {words.length} recorded)</b>
+      {words.length > 0 ? <ul className="line-list">{words.map((l) => row(l, true))}</ul> : <p className="muted small">No lines yet.</p>}
+      <label>Add lines: type the words, one line per row
+        <textarea rows={3} value={adding} onChange={(e) => setAdding(e.target.value)} placeholder={'Hold it, Autobot!\nRoll out!'} />
+      </label>
+      <div className="row"><button className="btn" onClick={addLines} disabled={!adding.trim()}>＋ Add {adding.split('\n').filter((t) => t.trim()).length > 1 ? 'these lines' : 'this line'}</button></div>
+
+      <b>🔢 Counting <span className="muted small">(said while the kid holds; only up to the longest hold is needed)</span></b>
+      <ul className="line-list">{numbers.map((l) => row(l, false))}</ul>
     </div>
   );
 }
 
-function uploadLine(characterId, key, wav) {
+// Which exercises use each line: { key: ['Hug & Starfish', …] }.
+export function usage(character) {
+  const out = {};
+  for (const e of character.exercises) {
+    for (const s of e.script.scenes) {
+      const k = s.voice?.line;
+      if (k && !(out[k] || []).includes(e.name)) (out[k] ||= []).push(e.name);
+    }
+  }
+  return out;
+}
+
+// Plays one of the character's lines, loading the library when it changes.
+export function useHear(character) {
+  const player = useRef(null);
+  const loadedFor = useRef('');
+  useEffect(() => () => player.current?.destroy(), []);
+  const hear = async (key) => {
+    player.current ??= new VoicePlayer();
+    await player.current.resume();
+    const stamp = JSON.stringify(character.partner.voice);
+    if (loadedFor.current !== stamp) {
+      await player.current.load({ id: character.id, effect: character.partner.effect, voice: character.partner.voice });
+      loadedFor.current = stamp;
+    }
+    player.current.effect = character.partner.effect;
+    player.current.stopAll();
+    return player.current.play(key);
+  };
+  hear.reset = () => { loadedFor.current = ''; };
+  return hear;
+}
+
+export function uploadLine(characterId, key, wav) {
   const form = new FormData();
   form.append('audio', wav, `${key}.wav`);
   return api.upload('PUT', `/api/parent/characters/${characterId}/lines/${key}`, form);
@@ -165,7 +176,7 @@ function uploadLine(characterId, key, wav) {
 
 // Full screen: shows one line at a time, big, like a teleprompter. The
 // microphone runs the whole time; tapping Next cuts off the line just said.
-function RecordSession({ voice, lines, onExit }) {
+export function RecordSession({ voice, lines, onExit }) {
   const recorder = useRef(null);
   const player = useRef(null);
   const segStart = useRef(0);

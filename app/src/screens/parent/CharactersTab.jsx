@@ -1,27 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api.js';
 import { useParentCall } from './useParentCall.js';
-import { DanceViewer } from '../../three/danceViewer.js';
-import PartnerEditor from './PartnerEditor.jsx';
+import CharacterPage from './CharacterPage.jsx';
+import { glbOnly, KIND_EMOJI } from './characterFiles.js';
 
-// Add characters by uploading the .glb files. The server shrinks them for
-// the tablets, so the big originals are fine to upload. Any character can also
-// be an exercise partner; some are only that (nothing to build).
+// All the characters as tiles, plus adding one. Tapping a character opens its
+// own page (building, exercise model, voice, exercises). The server shrinks
+// the 3D files for the tablets, so the big originals are fine to upload.
 export default function CharactersTab({ onAuthLost }) {
   const { error, setError, call } = useParentCall(onAuthLost);
-  const [list, setList] = useState([]);
-  const [editing, setEditing] = useState(null);
-  const [watching, setWatching] = useState(null);
+  const [list, setList] = useState(null);
+  const [openId, setOpenId] = useState(null);
+  const [adding, setAdding] = useState(false);
   const [progress, setProgress] = useState(null);
 
   async function load() {
     const c = await call(() => api.get('/api/parent/characters'));
     if (c) setList(c);
+    return c;
   }
   useEffect(() => { load(); }, []);
 
   // While anything is being processed, check back every few seconds.
-  const busy = list.some((c) => c.status === 'processing' || c.partner?.exercise?.status === 'processing' ||
+  const busy = (list || []).some((c) => c.status === 'processing' || c.partner?.exercise?.status === 'processing' ||
     c.dances.some((d) => d.status === 'processing'));
   useEffect(() => {
     if (!busy) return;
@@ -33,136 +34,74 @@ export default function CharactersTab({ onAuthLost }) {
     setProgress(0);
     const r = await call(() => api.upload(method, path, form, setProgress));
     setProgress(null);
-    if (r) load();
+    if (r) await load();
     return r;
   }
 
-  return (
-    <div className="stack">
-      {error && <p className="error">{error}</p>}
-      {progress != null && (
-        <div className="card">Uploading… {Math.round(progress * 100)}%
-          <div className="progress"><i style={{ width: `${progress * 100}%` }} /></div>
-        </div>
-      )}
-
-      {list.map((c) => (
-        <div key={c.id} className="card">
-          <div className="row spread">
-            <h3>{KIND_EMOJI[c.kind] ?? '🤖'} {c.name}</h3>
-            <span className={`status ${c.status}`}>
-              {c.status === 'processing' ? 'Getting ready…' : c.status === 'error' ? 'Problem'
-                : c.kind === 'partner' ? 'Exercise partner' : `${c.pieces.length} pieces`}
-              {c.kind !== 'partner' && c.partner?.exercise?.status === 'ready' && ' · ⭐ partner'}
-            </span>
-          </div>
-          {c.error && <p className="error">{c.error}</p>}
-          {editing === c.id ? (
-            <CharacterEditor character={c} call={call} upload={upload} onDone={() => { setEditing(null); load(); }} onReload={load} setError={setError} />
-          ) : (
-            <div className="row">
-              <button className="btn" onClick={() => setEditing(c.id)}>Edit</button>
-              {canWatch(c) && (
-                <button className="btn" onClick={() => setWatching(watching === c.id ? null : c.id)}>
-                  {watching === c.id ? 'Close dances' : '💃 Watch dances'}
-                </button>
-              )}
-            </div>
-          )}
-          {watching === c.id && editing !== c.id && canWatch(c) && <DancePreview key={c.version} character={c} />}
-        </div>
-      ))}
-
-      <AddCharacter upload={upload} setError={setError} />
+  const uploading = progress != null && (
+    <div className="card">Uploading… {Math.round(progress * 100)}%
+      <div className="progress"><i style={{ width: `${progress * 100}%` }} /></div>
     </div>
   );
-}
 
-function glbOnly(files) {
-  return [...(files || [])].filter((f) => /\.glb$/i.test(f.name));
-}
-
-// Dances can also be Mixamo downloads (.fbx, "Without Skin").
-function danceFiles(files) {
-  return [...(files || [])].filter((f) => /\.(glb|fbx)$/i.test(f.name));
-}
-
-const KIND_EMOJI = { build: '🤖', dress: '👗', partner: '⭐' };
-
-const canWatch = (c) => c.hasRigged && c.dances.some((d) => d.status === 'ready');
-
-// The dancing model playing its dances, exactly as the kids will see it.
-function DancePreview({ character }) {
-  const holder = useRef(null);
-  const viewer = useRef(null);
-  const [current, setCurrent] = useState(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [time, setTime] = useState(null);
-  const dances = character.dances.filter((d) => d.status === 'ready');
-
-  useEffect(() => {
-    const v = new DanceViewer(holder.current);
-    viewer.current = v;
-    let cancelled = false;
-    v.load(api.url(`/api/characters/${character.id}/rigged.glb?v=${character.version}`), api.authHeaders())
-      .then(() => { if (!cancelled) { setLoading(false); play(dances[0]); } })
-      .catch((e) => { if (!cancelled) { setError(e.message || 'The dancing model would not load.'); setLoading(false); } });
-    const t = setInterval(() => setTime(v.progress()), 250);
-    return () => { cancelled = true; clearInterval(t); v.destroy(); };
-  }, []);
-
-  async function play(d) {
-    setError('');
-    setCurrent(d.id);
-    try {
-      await viewer.current.play(api.url(`/api/characters/${character.id}/dances/${d.id}.glb?v=${character.version}`));
-    } catch (e) {
-      setError(e.message || 'That dance would not load.');
-      setCurrent(null);
-    }
-  }
-
-  function stop() {
-    viewer.current.stop();
-    setCurrent(null);
+  const open = list?.find((c) => c.id === openId);
+  if (open) {
+    return (
+      <div className="stack">
+        {error && <p className="error">{error}</p>}
+        {uploading}
+        <CharacterPage key={open.id} character={open} all={list} call={call} upload={upload} setError={setError}
+          reload={load} onBack={() => setOpenId(null)} />
+      </div>
+    );
   }
 
   return (
     <div className="stack">
-      <div className="dance-preview" ref={holder}>
-        {loading && <div className="dance-preview-note">Loading {character.name}…</div>}
-      </div>
       {error && <p className="error">{error}</p>}
-      <div className="row wrap">
-        {dances.map((d) => (
-          <button key={d.id} className={current === d.id ? 'btn primary small' : 'btn small'} onClick={() => play(d)} disabled={loading}>
-            {d.name}
+      {uploading}
+      <div className="char-grid">
+        {(list || []).map((c) => (
+          <button key={c.id} className="char-tile" onClick={() => setOpenId(c.id)}>
+            <span className="char-emoji">{KIND_EMOJI[c.kind] ?? '🤖'}</span>
+            <b>{c.name}</b>
+            <span className="muted small">{summary(c)}</span>
           </button>
         ))}
-        <button className="btn small" onClick={stop} disabled={loading || current == null}>Stand still</button>
+        <button className="char-tile add" onClick={() => setAdding(!adding)}>
+          <span className="char-emoji">＋</span>
+          <b>Add a character</b>
+        </button>
       </div>
-      <p className="muted small">
-        {time ? `${time.time.toFixed(1)} of ${time.duration.toFixed(1)} s · ` : ''}
-        Swipe the picture to turn {character.name} around. Dances loop here; kids pick one with the 💃 button after the build is done.
-      </p>
+      {list && !list.length && !adding && <p className="muted">No characters yet. Add the first one.</p>}
+      {adding && <AddCharacter upload={upload} setError={setError} onAdded={(c) => { setAdding(false); if (c?.id) setOpenId(c.id); }} />}
     </div>
   );
 }
 
-function AddCharacter({ upload, setError }) {
+function summary(c) {
+  if (c.status === 'processing') return 'Getting ready…';
+  if (c.status === 'error') return 'Problem: open it to see';
+  const bits = [];
+  if (c.kind !== 'partner') bits.push(`${c.pieces.length} pieces`);
+  else bits.push('Exercise partner');
+  const ex = c.partner?.exercise;
+  if (ex?.status === 'processing') bits.push('exercise model getting ready…');
+  if (c.exercises.length) bits.push(`${c.exercises.length} ${c.exercises.length === 1 ? 'exercise' : 'exercises'}`);
+  return bits.join(' · ');
+}
+
+function AddCharacter({ upload, setError, onAdded }) {
   const [name, setName] = useState('');
   const [kind, setKind] = useState('build');
   const pieces = useRef(null);
-  const rigged = useRef(null);
-  const dances = useRef(null);
   const exercise = useRef(null);
   const partnerOnly = kind === 'partner';
 
   async function submit(e) {
     e.preventDefault();
     if (!name.trim()) return setError('Give the character a name');
-    const ex = glbOnly(exercise.current.files)[0];
+    const ex = glbOnly(exercise.current?.files)[0];
     const p = partnerOnly ? [] : glbOnly(pieces.current.files);
     if (partnerOnly && !ex) return setError('Pick the exercise model (.glb)');
     if (!partnerOnly && !p.length) return setError('Pick the piece files (.glb)');
@@ -171,21 +110,14 @@ function AddCharacter({ upload, setError }) {
     form.append('kind', kind);
     p.forEach((f) => form.append('pieces', f, f.name));
     if (ex) form.append('exercise', ex, ex.name);
-    if (!partnerOnly) {
-      const r = glbOnly(rigged.current.files)[0];
-      if (r) form.append('rigged', r, r.name);
-      danceFiles(dances.current.files).forEach((f) => form.append('dances', f, f.name));
-    }
-    if (await upload('POST', '/api/parent/characters', form)) {
-      setName('');
-      e.target.reset();
-    }
+    const r = await upload('POST', '/api/parent/characters', form);
+    if (r) onAdded(r);
   }
 
   return (
     <form className="card stack" onSubmit={submit}>
       <h3>Add a character</h3>
-      <div className="row">
+      <div className="row wrap">
         <input placeholder="Name (e.g. Bumblebee)" value={name} onChange={(e) => setName(e.target.value)} />
         <select value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="build">Build (snap parts together)</option>
@@ -193,146 +125,20 @@ function AddCharacter({ upload, setError }) {
           <option value="partner">Exercise partner only (nothing to build)</option>
         </select>
       </div>
-      {!partnerOnly && (
-        <>
-          <label>Pieces — pick all the piece .glb files. They must all be exported from the whole model without moving them.
-            <input type="file" multiple ref={pieces} />
-          </label>
-          <label>Dancing model (optional) — the rigged .glb
-            <input type="file" ref={rigged} />
-          </label>
-          <label>Dances (optional) — any number of animation files for the same rig: .glb, or Mixamo .fbx downloaded “Without Skin”
-            <input type="file" multiple ref={dances} />
-          </label>
-        </>
+      {partnerOnly ? (
+        <label>Exercise model — one .glb with the model, props and its exercise animations
+          <input type="file" accept=".glb" ref={exercise} />
+        </label>
+      ) : (
+        <label>Pieces — pick all the piece .glb files. They must all be exported from the whole model without moving them.
+          <input type="file" multiple ref={pieces} />
+        </label>
       )}
-      <label>Exercise model {partnerOnly ? '' : '(optional) '}— one .glb with the model, props and its exercise animations
-        <input type="file" accept=".glb" ref={exercise} />
-      </label>
       <p className="muted small">{partnerOnly
-        ? 'Every kid can pick an exercise-only partner. After uploading, open Edit to set pause marks and record the voice.'
-        : 'Pieces start out unlocking from the bottom up (feet first, head last). You can reorder them afterwards.'}</p>
+        ? 'Every kid can pick an exercise-only partner. Its voice and exercises are set up on its page next.'
+        : 'The dancing model, dances and exercise model can be added on its page next.'}</p>
       <button className="btn primary">Upload</button>
     </form>
   );
 }
 
-function CharacterEditor({ character, call, upload, onDone, onReload, setError }) {
-  const partnerOnly = character.kind === 'partner';
-  const [name, setName] = useState(character.name);
-  const [kind, setKind] = useState(character.kind);
-  const [pieces, setPieces] = useState(character.pieces);
-  const addPieces = useRef(null);
-  const rigged = useRef(null);
-  const dances = useRef(null);
-
-  function move(i, d) {
-    const next = [...pieces];
-    const j = i + d;
-    if (j < 0 || j >= next.length) return;
-    [next[i], next[j]] = [next[j], next[i]];
-    setPieces(next);
-  }
-
-  async function save() {
-    if (await call(() => api.put(`/api/parent/characters/${character.id}`, { name, kind, pieces }))) onDone();
-  }
-
-  async function removePiece(p) {
-    if (!window.confirm(`Remove the piece "${p.name}"? Kids who unlocked it lose it.`)) return;
-    if (await call(() => api.del(`/api/parent/pieces/${p.id}`))) onDone();
-  }
-
-  async function uploadFiles(ref, field, path, single) {
-    const files = field === 'dances' ? danceFiles(ref.current.files) : glbOnly(ref.current.files);
-    if (!files.length) return setError(field === 'dances' ? 'Pick a .glb or .fbx file first' : 'Pick a .glb file first');
-    const form = new FormData();
-    (single ? files.slice(0, 1) : files).forEach((f) => form.append(field, f, f.name));
-    if (await upload('POST', path, form)) onDone();
-  }
-
-  async function removeCharacter() {
-    if (!window.confirm(`Delete ${character.name} completely? Every kid's progress on it is deleted too.`)) return;
-    if (await call(() => api.del(`/api/parent/characters/${character.id}`))) onDone();
-  }
-
-  async function renameDance(d, value) {
-    if (value !== d.name) await call(() => api.put(`/api/parent/dances/${d.id}`, { name: value }));
-  }
-
-  async function removeDance(d) {
-    if (await call(() => api.del(`/api/parent/dances/${d.id}`))) onDone();
-  }
-
-  return (
-    <div className="stack">
-      <div className="row">
-        <input value={name} onChange={(e) => setName(e.target.value)} />
-        {!partnerOnly && (
-          <select value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="build">Build</option>
-            <option value="dress">Dress up</option>
-          </select>
-        )}
-      </div>
-
-      {partnerOnly && (
-        <div className="row">
-          <button className="btn primary" onClick={save}>Save name</button>
-          <button className="btn" onClick={onDone}>Close</button>
-        </div>
-      )}
-
-      {!partnerOnly && <>
-      <h4>Pieces, in unlock order</h4>
-      <ol className="piece-list">
-        {pieces.map((p, i) => (
-          <li key={p.id} className="row">
-            <input value={p.name} onChange={(e) => setPieces(pieces.map((x) => (x.id === p.id ? { ...x, name: e.target.value } : x)))} />
-            <button className="btn small" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
-            <button className="btn small" onClick={() => move(i, 1)} disabled={i === pieces.length - 1}>↓</button>
-            <button className="btn small danger" onClick={() => removePiece(p)}>✕</button>
-          </li>
-        ))}
-      </ol>
-      <div className="row">
-        <button className="btn primary" onClick={save}>Save names &amp; order</button>
-        <button className="btn" onClick={onDone}>Close</button>
-      </div>
-
-      <h4>Add more pieces</h4>
-      <div className="row">
-        <input type="file" multiple ref={addPieces} />
-        <button className="btn" onClick={() => uploadFiles(addPieces, 'pieces', `/api/parent/characters/${character.id}/pieces`)}>Upload</button>
-      </div>
-
-      <h4>Dancing model {character.hasRigged ? '✓' : '(none yet)'}</h4>
-      <div className="row">
-        <input type="file" ref={rigged} />
-        <button className="btn" onClick={() => uploadFiles(rigged, 'rigged', `/api/parent/characters/${character.id}/rigged`, true)}>
-          {character.hasRigged ? 'Replace' : 'Upload'}
-        </button>
-      </div>
-
-      <h4>Dances <span className="muted small">(.glb, or Mixamo .fbx “Without Skin”)</span></h4>
-      <ul className="piece-list">
-        {character.dances.map((d) => (
-          <li key={d.id} className="row">
-            <input defaultValue={d.name} onBlur={(e) => renameDance(d, e.target.value)} />
-            <span className={`status ${d.status}`}>{d.status === 'ready' ? '' : d.status === 'error' ? d.error : 'processing…'}</span>
-            <button className="btn small danger" onClick={() => removeDance(d)}>✕</button>
-          </li>
-        ))}
-      </ul>
-      <div className="row">
-        <input type="file" multiple ref={dances} />
-        <button className="btn" onClick={() => uploadFiles(dances, 'dances', `/api/parent/characters/${character.id}/dances`)}>Upload dances</button>
-      </div>
-      </>}
-
-      <PartnerEditor character={character} call={call} upload={upload} setError={setError} onChange={onReload} />
-
-      <button className="btn danger" onClick={removeCharacter}>Delete this character</button>
-    </div>
-  );
-}

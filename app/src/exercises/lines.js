@@ -1,6 +1,7 @@
-// Everything an exercise partner can say, in the order a grown-up records it. Exercises
-// refer to lines by key; a line nobody recorded falls back to the device's
-// own voice (where there is one) or a tick.
+// A partner's voice library: lines with the words they say (voice:
+// [{ key, text, version, seconds }]). Counting uses the lines n1…n30. A line
+// with nothing recorded is spoken by the device's own voice (where there is
+// one) or is a tick.
 
 const NUMBERS = [
   'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
@@ -10,35 +11,22 @@ const NUMBERS = [
 ];
 export const MAX_COUNT = NUMBERS.length;
 export const numberLine = (n) => `n${n}`;
+export const isNumberLine = (key) => /^n([1-9]|[12]\d|30)$/.test(key);
 
-export const LINE_GROUPS = [
-  {
-    title: '⭐ Hug & Starfish',
-    lines: [
-      { key: 'starfish_start', text: 'Lie down like a starfish.' },
-      { key: 'chest_right', text: 'Right arm on your chest.' },
-      { key: 'chest_left', text: 'Left arm on your chest.' },
-      { key: 'top_right', text: 'Right arm on top.' },
-      { key: 'top_left', text: 'Left arm on top.' },
-      { key: 'leg_right', text: 'Cross your right leg over.' },
-      { key: 'leg_left', text: 'Cross your left leg over.' },
-      { key: 'sit_up', text: 'Sit up and tuck your head.' },
-      { key: 'hold', text: 'Hold it!' },
-      { key: 'lie_back', text: 'Lie back down. Starfish!' },
-      { key: 'other_side', text: 'Other side!' },
-      { key: 'done', text: 'All done! Great job!' }
-    ]
-  },
-  {
-    title: '🔢 Counting',
-    lines: NUMBERS.map((text, i) => ({ key: numberLine(i + 1), text }))
-  }
-];
+// Every counting line, recorded or not.
+export const numberLines = (voice = []) => NUMBERS.map((text, i) => {
+  const key = numberLine(i + 1);
+  return voice.find((l) => l.key === key) ?? { key, text, version: null, seconds: null };
+});
 
-export const ALL_LINES = LINE_GROUPS.flatMap((g) => g.lines);
-// A partner can have its own wording for any line (phrases: { key: text }).
-export const defaultText = (key) => ALL_LINES.find((l) => l.key === key)?.text ?? key;
-export const lineText = (key, phrases) => phrases?.[key] || defaultText(key);
+// The lines that aren't counting, in library order.
+export const wordLines = (voice = []) => voice.filter((l) => !isNumberLine(l.key));
+
+export function lineWords(voice, key) {
+  const l = voice?.find((x) => x.key === key);
+  if (l?.text) return l.text;
+  return isNumberLine(key) ? NUMBERS[Number(key.slice(1)) - 1] : '';
+}
 
 // Voice effects the app adds while playing a partner's lines.
 export const EFFECTS = [

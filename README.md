@@ -18,25 +18,14 @@ A family app for the house, starting with kids' tooth brushing:
 - **Exercises**: home exercises from an occupational therapist.
   - *Metronome*: a steady tick to clap along to, faster or slower by 5 beats
     a minute (each kid's speed is remembered on the device).
-  - *Hug & Starfish*: the kid's exercise partner shows each move while saying
-    it: arms on the chest, cross the leg, sit up and hold while it counts, lie
-    back as a starfish, then again with the other arm on top. The wait, hold
-    and number of rounds are set per kid by a grown-up.
-  - *Exercise partners*: any character can be one. Upload an exercise model
-    (one .glb from Blender with the model, props and exercise animations),
-    pick what each animation is for, and set pause marks in the browser so the
-    partner stops after each part of a move. Grown-ups record the partner's
-    lines in their own voice in the app (or add audio files) and pick an
-    effect (robot, radio, giant, sparkly, echo); recordings are trimmed and
-    evened out on the phone and stored on the server only. One long recording
-    of all the lines (from a voice tool, say) can be split into lines in the
-    app: it finds each line by the pauses and matches them up in order, with a
-    waveform, play buttons and fixes for skipped or joined clips. The words of
-    any line can be changed per partner; the screen and the device's own voice
-    (for lines not recorded) use them too. Kids pick their
-    partner in Settings, from the characters they've finished building plus
-    any open to everyone. Without one, a figure built from simple shapes in
-    code shows the moves.
+  - *The partner's exercises*: each exercise partner (a character) has its
+    own exercises, made by a grown-up in the exercise editor (below), like
+    Hug & Starfish: arms on the chest, cross the leg, sit up and hold while it
+    counts, lie back as a starfish, then the other side. The wait, hold and
+    number of rounds are set per kid by a grown-up.
+  - *Exercise partners*: any character can be one. Kids pick their partner in
+    Settings, from the characters they've finished building plus any open to
+    everyone, and get that partner's exercises.
 - **Accounts**: grown-up and kid accounts. Each device asks "Who are you?"
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
@@ -145,20 +134,45 @@ for outfit pieces on an outline: each piece should include the body part
 under it (shoes bring the feet, pants bring the legs). **Exercise partner
 only** has nothing to build: just the exercise model.
 
-### Exercise models
+### Each character's page
 
-One .glb per character with the model, any props and every exercise
-animation (Blender: export with all actions). Names are matched up when
-uploaded; anything else can be picked by hand afterwards:
+Characters shows every character as a tile; tapping one opens its page:
 
-| Animation name | Used for |
-|---|---|
-| `Starfish_Sit_Up.L` / `.R` | Hug & Starfish, left/right arm on top: get into position |
-| `Starfish_Sit_Up_Rev.L` / `.R` | the same, lying back down to a starfish |
-| `Wave` (or `Cheer`) | the cheer at the end |
+- **Details**: name, kind, whether every kid can pick it as a partner.
+- **Build**: pieces in unlock order, the dancing model and dances.
+- **Exercise model**: one .glb with the model, any props and every exercise
+  animation (Blender: export with all actions), with a viewer to scrub
+  through each animation.
+- **Voice**: the partner's lines, each with its words. Record them in the
+  app, add audio files, or split one long recording (from a voice tool, say)
+  into lines: it finds each line by the pauses and matches them up in order.
+  Pick a voice effect (robot, radio, giant, sparkly, echo). Recordings are
+  trimmed and evened out on the device and stored on the server only.
+  Counting (one to thirty) is used while the kid holds.
+- **Exercises**: start one from scratch, make Hug & Starfish from animations
+  named like `Starfish_Sit_Up.L` / `.R` and `Starfish_Sit_Up_Rev.L` / `.R`, or
+  copy one from another character (same animation names, its words come along
+  to record again).
 
-"Get into position" needs three pause marks (after the first arm, after the
-second arm, after crossing the leg); set them under Characters → Edit.
+### The exercise editor
+
+An exercise is a row of scenes, shown on a timeline with a preview that plays
+it exactly as the kid sees it. Each scene has:
+
+- a **move**: part of an animation (from and to, scrubbed to the spot;
+  backwards if to is before from), its speed, and whether it keeps repeating;
+  no move holds the last pose,
+- a **voice** line from the partner's voice (or a new one made from the
+  scene's words), starting when you like,
+- **words** on the screen (the voice line's words unless you type others),
+- **then**: go straight on, wait for the kid, or count while they hold,
+  using each kid's own time or a set number of seconds.
+
+A stretch of scenes can repeat for the kid's rounds, with scenes skipped in
+the first round (like "Other side!"). "Copy for the other side" copies scenes
+with left and right swapped in the words, the animations (.L/.R) and the voice
+lines. "Make voice lines from the words" and "Split one recording into the
+scenes" give a whole exercise its voice in one go. Changes save by themselves.
 
 ## Developing
 

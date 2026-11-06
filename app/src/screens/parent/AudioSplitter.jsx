@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ALL_LINES } from '../../exercises/lines.js';
 import { decodeFile, levelsOf, findSpeech, cleanClip, toWav } from '../../exercises/audioTools.js';
 
-const KEYS = ALL_LINES.map((l) => l.key);
-const after = (key) => KEYS[KEYS.indexOf(key) + 1] ?? '';
-
 // Hands out lines in order from `key`, one per clip from `from` on.
-function flow(assign, from, key) {
+function flow(assign, from, key, after) {
   const out = assign.slice(0, from);
   for (let i = from; i < assign.length; i++) {
     out.push(key);
@@ -18,9 +14,16 @@ function flow(assign, from, key) {
 // One long recording (say, every line read by an AI voice tool, with a pause
 // between them) cut into the separate lines. It all happens on this device;
 // only the finished clips are uploaded, like recording them one by one.
-export default function AudioSplitter({ character, textOf, upload, onSaved, onClose }) {
-  const lines = character.partner.lines;
-  const firstMissing = KEYS.find((k) => !lines[k]) ?? KEYS[0];
+// targets: the lines to fill, in the order they were read ([{ key, text, version }]).
+export default function AudioSplitter({ targets, upload, onSaved, onClose, note, fromStart = false }) {
+  const KEYS = targets.map((l) => l.key);
+  const after = (key) => KEYS[KEYS.indexOf(key) + 1] ?? '';
+  const flowFrom = (a, from, key) => flow(a, from, key, after);
+  const byKey = new Map(targets.map((l) => [l.key, l]));
+  const textOf = (key) => byKey.get(key)?.text ?? key;
+  const lines = Object.fromEntries(targets.filter((l) => l.version).map((l) => [l.key, l]));
+  const firstMissing = (fromStart ? null : KEYS.find((k) => !lines[k])) ?? KEYS[0];
+  const [copied, setCopied] = useState(false);
   const [audio, setAudio] = useState(null); // { name, samples, rate, levels }
   const [gap, setGap] = useState(1);
   const [startKey, setStartKey] = useState(firstMissing);
@@ -41,7 +44,7 @@ export default function AudioSplitter({ character, textOf, upload, onSaved, onCl
     if (!audio) return;
     const found = findSpeech(audio.levels, { gap });
     setRegions(found);
-    setAssign(flow(new Array(found.length).fill(''), 0, startKey));
+    setAssign(flowFrom(new Array(found.length).fill(''), 0, startKey));
   }, [audio, gap]);
 
   useEffect(() => draw(), [audio, regions, assign, playing]);
@@ -125,7 +128,7 @@ export default function AudioSplitter({ character, textOf, upload, onSaved, onCl
   function choose(i, key) {
     const next = assign.slice();
     next[i] = key;
-    setAssign(flow(next, i + 1, key ? after(key) : nextFrom(i)));
+    setAssign(flowFrom(next, i + 1, key ? after(key) : nextFrom(i)));
   }
 
   // A clip that isn't a line (a cough, a retake): skip it and move the rest up.
@@ -133,7 +136,7 @@ export default function AudioSplitter({ character, textOf, upload, onSaved, onCl
     const next = assign.slice();
     const key = next[i];
     next[i] = '';
-    setAssign(flow(next, i + 1, key || nextFrom(i)));
+    setAssign(flowFrom(next, i + 1, key || nextFrom(i)));
   }
 
   // The line the next clip after i should get, going by the clips before it.
@@ -150,12 +153,12 @@ export default function AudioSplitter({ character, textOf, upload, onSaved, onCl
     const a = assign.slice();
     a.splice(i + 1, 1);
     setRegions(r);
-    setAssign(flow(a, i + 1, a[i] ? after(a[i]) : nextFrom(i + 1)));
+    setAssign(flowFrom(a, i + 1, a[i] ? after(a[i]) : nextFrom(i + 1)));
   }
 
   function restart(key) {
     setStartKey(key);
-    setAssign(flow(assign, 0, key));
+    setAssign(flowFrom(assign, 0, key));
   }
 
   async function save() {
@@ -197,6 +200,17 @@ export default function AudioSplitter({ character, textOf, upload, onSaved, onCl
       <p className="muted small">Make one file with the lines read in the order below, with a short pause between them
         (about 2 seconds is best). The app finds each line by the quiet around it and matches them up in order.
         Play any clip to check it; fix one that's off and the ones after it follow along.</p>
+      {note && <p className="small">{note}</p>}
+      {!audio && (
+        <details className="split-script" open={targets.length <= 40}>
+          <summary>The lines, in order ({targets.length})</summary>
+          <ol>{targets.map((l) => <li key={l.key}>{l.text}{l.version ? <span className="muted small"> ✓</span> : ''}</li>)}</ol>
+          <button className="btn small" onClick={() => navigator.clipboard?.writeText(targets.map((l) => l.text).join('\n')).then(() => setCopied(true))}>
+            📋 {copied ? 'Copied' : 'Copy the words'}
+          </button>
+          <span className="muted small"> to paste into a voice tool. ✓ = already recorded.</span>
+        </details>
+      )}
       <label className="btn">📁 Choose the file
         <input type="file" accept="audio/*,video/*" style={{ display: 'none' }} onChange={pick} disabled={saving} />
       </label>
@@ -212,7 +226,7 @@ export default function AudioSplitter({ character, textOf, upload, onSaved, onCl
           </label>
           <label>The first clip is
             <select value={startKey} onChange={(e) => restart(e.target.value)} disabled={saving}>
-              {ALL_LINES.map((l) => <option key={l.key} value={l.key}>“{textOf(l.key)}”</option>)}
+              {targets.map((l) => <option key={l.key} value={l.key}>“{l.text}”</option>)}
             </select>
           </label>
           <ol className="split-list">
@@ -222,7 +236,7 @@ export default function AudioSplitter({ character, textOf, upload, onSaved, onCl
                 <button className="btn small" onClick={() => (i === playing ? stop() : play(i))} aria-label="Play">{i === playing ? '■' : '▶'}</button>
                 <select value={assign[i] ?? ''} onChange={(e) => choose(i, e.target.value)} disabled={saving}>
                   <option value="">— not a line (skip) —</option>
-                  {ALL_LINES.map((l) => <option key={l.key} value={l.key}>“{textOf(l.key)}”{lines[l.key] ? ' (replaces)' : ''}</option>)}
+                  {targets.map((l) => <option key={l.key} value={l.key}>“{l.text}”{lines[l.key] ? ' (replaces)' : ''}</option>)}
                 </select>
                 <button className="btn small" onClick={() => skip(i)} disabled={saving || !assign[i]} title="Not a line: skip it and move the rest up">Skip</button>
                 {i + 1 < regions.length && <button className="btn small" onClick={() => join(i)} disabled={saving} title="Join with the next clip">⤵ Join</button>}

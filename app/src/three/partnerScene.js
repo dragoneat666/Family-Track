@@ -115,6 +115,37 @@ export class PartnerScene {
     return this.actions.get(name);
   }
 
+  // Set the exact pose for one moment of an exercise: pose = { clip, time },
+  // optionally blended from another ({ clip, time }) with `weight` going 0→1.
+  // Exercises call this every frame, so scrubbing and playing match exactly.
+  setPose(pose, from = null, weight = 1) {
+    if (!this.mixer) return;
+    this.endMove();
+    this.current = null;
+    const use = new Map();
+    if (pose) use.set(pose.clip, { time: pose.time, weight: from && from.clip !== pose.clip ? weight : 1 });
+    if (from && pose && from.clip !== pose.clip && weight < 1) use.set(from.clip, { time: from.time, weight: 1 - weight });
+    for (const [name, a] of this.actions) if (!use.has(name)) a.stop();
+    for (const [name, u] of use) {
+      const a = this.action(name);
+      if (!a) continue;
+      a.stopFading();
+      a.setLoop(THREE.LoopOnce, 1);
+      a.clampWhenFinished = true;
+      if (!a.isScheduled()) a.play();
+      a.enabled = true;
+      a.paused = true;
+      a.timeScale = 1;
+      a.time = Math.max(0, Math.min(u.time, a.getClip().duration));
+      a.setEffectiveWeight(u.weight);
+    }
+    this.mixer.update(0);
+  }
+
+  has(name) {
+    return this.clips?.has(name) ?? false;
+  }
+
   // Show one moment of an animation and hold it there, fading over from
   // whatever was showing.
   show(name, time = 0, fade = 0.35) {

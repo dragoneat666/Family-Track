@@ -9,6 +9,9 @@ import {
   hasAdults, hashPin, validPin, checkAccountPin, checkAnyAdultPin, createDevice,
   optionalDevice, requireAccount, requireAdult, httpError
 } from './auth.js';
+import {
+  LINE_KEY, cleanScript, cleanSettings, starfishScript, starterText, linesUsed, newLineKey
+} from './exerciseScript.js';
 import { buildCharacterModel, processRigged, processDance, processExercise, characterDir, niceName } from './assets.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
@@ -336,31 +339,40 @@ app.get('/api/characters/:id/dances/:danceId.glb', (req, res) =>
 
 // ---------- exercises ----------
 // Exercise partners: a character with an exercise model (its own .glb with
-// the exercise animations) shows each move, and talks in recorded lines played
-// with its voice effect (robot, radio…). Recordings arrive as small WAV files,
-// already trimmed and evened out by the app. They're kept in /data/voices
-// (backed up), not with the 3D files (which can just be uploaded again).
+// the exercise animations) acts out its exercises: scripts a grown-up edits
+// scene by scene (exerciseScript.js), with lines from its voice library
+// played through its voice effect (robot, radio…). Recordings arrive as small
+// WAV files, already trimmed and evened out by the app. They're kept in
+// /data/voices (backed up), not with the 3D files (which can just be uploaded
+// again).
 
 const voiceDir = (id) => path.join(DATA_DIR, 'voices', String(id));
-const LINE_KEY = /^[a-z0-9_]{1,40}$/;
 const EFFECTS = ['none', 'robot', 'radio', 'deep', 'high', 'echo'];
 const safeJson = (s) => { try { return JSON.parse(s) || {}; } catch { return {}; } };
+const cleanWords = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
 
+// The voice library, in the order the lines were added.
 function voiceLines(characterId) {
-  const lines = {};
-  for (const l of db.prepare('SELECT line, version, seconds FROM character_lines WHERE character_id = ?').all(characterId)) {
-    lines[l.line] = { version: l.version, seconds: l.seconds };
-  }
-  return lines;
+  return db.prepare('SELECT key, text, version, seconds FROM voice_lines WHERE character_id = ? ORDER BY rowid').all(characterId)
+    .map((l) => ({ key: l.key, text: l.text, version: l.version, seconds: l.seconds }));
 }
 
-// What the app needs to show a partner and hear them.
+function exercisesOf(characterId) {
+  return db.prepare('SELECT * FROM exercises WHERE character_id = ? ORDER BY sort, id').all(characterId)
+    .map((e) => ({ id: e.id, slug: e.slug, name: e.name, emoji: e.emoji, script: cleanScript(safeJson(e.script)) }));
+}
+
+// What the app needs to show a partner, hear them and run their exercises.
+// lines/uses/marks are still sent for app builds before editable exercises.
 function partnerDetail(c) {
   const ex = safeJson(c.exercise);
+  const voice = voiceLines(c.id);
   return {
     id: c.id, name: c.name, kind: c.kind, effect: c.voice_effect,
-    version: ex.version ?? 0, uses: ex.uses ?? {}, marks: ex.marks ?? {}, animations: ex.animations ?? [],
-    lines: voiceLines(c.id), phrases: safeJson(c.phrases)
+    version: ex.version ?? 0, animations: ex.animations ?? [],
+    voice, exercises: exercisesOf(c.id),
+    lines: Object.fromEntries(voice.filter((l) => l.version).map((l) => [l.key, { version: l.version, seconds: l.seconds }])),
+    uses: ex.uses ?? {}, marks: ex.marks ?? {}
   };
 }
 
@@ -414,10 +426,11 @@ app.put('/api/kids/:id/exercises', (req, res) => {
     db.prepare('UPDATE profiles SET partner_id = ? WHERE id = ?').run(id, p.id);
   }
   if (b.settings && typeof b.settings === 'object') {
-    // One small object per exercise, merged into what's there.
+    // { wait, hold, rounds } per exercise (by its slug, shared by copies of
+    // it, so switching partners keeps them), merged into what's there.
     const settings = safeJson(p.exercise_settings);
     for (const [key, value] of Object.entries(b.settings)) {
-      if (LINE_KEY.test(key) && value && typeof value === 'object') settings[key] = value;
+      if (LINE_KEY.test(key) && value && typeof value === 'object') settings[key] = cleanSettings({ ...settings[key], ...value });
     }
     const json = JSON.stringify(settings);
     if (json.length > 20000) throw httpError(400, 'Too many settings');
@@ -599,10 +612,11 @@ function characterDetail(c) {
     partner: {
       forAll: !!c.partner_for_all,
       effect: c.voice_effect,
-      lines: voiceLines(c.id),
-      phrases: safeJson(c.phrases),
-      exercise: ex && { status: ex.status, error: ex.error ?? null, version: ex.version ?? 0, animations: ex.animations ?? [], uses: ex.uses ?? {}, marks: ex.marks ?? {} }
-    }
+      voice: voiceLines(c.id),
+      exercise: ex && { status: ex.status, error: ex.error ?? null, version: ex.version ?? 0, animations: ex.animations ?? [] },
+      canStarfish: !!(ex && starfishScript(ex))
+    },
+    exercises: exercisesOf(c.id)
   };
 }
 const characterRow = (id) => {
@@ -679,40 +693,85 @@ parent.post('/characters/:id/exercise', upload.single('exercise'), (req, res) =>
   res.status(202).json(characterDetail(characterRow(c.id)));
 });
 
-const USE_KEY = /^[a-z0-9_]{1,40}$/;
 parent.put('/characters/:id/partner', (req, res) => {
   const c = characterRow(Number(req.params.id));
   const b = req.body || {};
   if ('forAll' in b) db.prepare('UPDATE characters SET partner_for_all = ? WHERE id = ?').run(b.forAll ? 1 : 0, c.id);
   if (EFFECTS.includes(b.effect)) db.prepare('UPDATE characters SET voice_effect = ? WHERE id = ?').run(b.effect, c.id);
-  // phrases: { lineKey: text } merged in; an empty text goes back to the standard wording.
-  if (b.phrases && typeof b.phrases === 'object') {
-    const phrases = safeJson(c.phrases);
-    for (const [key, text] of Object.entries(b.phrases)) {
-      if (!LINE_KEY.test(key)) continue;
-      const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
-      if (clean) phrases[key] = clean;
-      else delete phrases[key];
-    }
-    db.prepare('UPDATE characters SET phrases = ? WHERE id = ?').run(JSON.stringify(phrases), c.id);
-  }
-  if (b.uses || b.marks) {
-    const ex = safeJson(c.exercise);
-    const names = new Set((ex.animations || []).map((a) => a.name));
-    if (b.uses && typeof b.uses === 'object') {
-      ex.uses = {};
-      for (const [use, name] of Object.entries(b.uses)) if (USE_KEY.test(use) && names.has(name)) ex.uses[use] = name;
-    }
-    if (b.marks && typeof b.marks === 'object') {
-      ex.marks = {};
-      for (const [name, list] of Object.entries(b.marks)) {
-        const seconds = names.has(name) && Array.isArray(list) ? list.map(Number).filter((t) => Number.isFinite(t) && t >= 0) : [];
-        if (seconds.length) ex.marks[name] = [...new Set(seconds.map((t) => Math.round(t * 1000) / 1000))].sort((x, y) => x - y).slice(0, 20);
-      }
-    }
-    db.prepare('UPDATE characters SET exercise = ? WHERE id = ?').run(JSON.stringify(ex), c.id);
-  }
   res.json(characterDetail(characterRow(c.id)));
+});
+
+// Exercises
+
+const exerciseRow = (id) => {
+  const e = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
+  if (!e) throw httpError(404, 'No such exercise');
+  return e;
+};
+const addVoiceLine = db.prepare(`INSERT INTO voice_lines (character_id, key, text) VALUES (?, ?, ?)
+  ON CONFLICT(character_id, key) DO NOTHING`);
+
+// Adds an exercise: an empty one, Hug & Starfish made from this character's
+// animations, or a copy of another one (from any character). A copy keeps its
+// slug, so each kid's hold time and rounds carry over, and brings the words of
+// its voice lines along (to record again in this character's voice).
+function addExercise(characterId, { name, emoji, copyFrom, starter }) {
+  const c = characterRow(characterId);
+  let script;
+  let slug = Math.random().toString(36).slice(2, 10);
+  let words = (key) => starterText(key);
+  if (copyFrom) {
+    const src = exerciseRow(Number(copyFrom));
+    script = cleanScript(safeJson(src.script));
+    slug = src.slug;
+    name ||= src.name;
+    emoji ||= src.emoji;
+    const theirs = new Map(voiceLines(src.character_id).map((l) => [l.key, l.text]));
+    words = (key) => theirs.get(key) ?? starterText(key);
+  } else if (starter === 'starfish') {
+    script = starfishScript(safeJson(c.exercise));
+    if (!script) throw httpError(400, 'This character has no "get into position" animation (like Starfish_Sit_Up.L)');
+    slug = 'starfish';
+    name ||= 'Hug & Starfish';
+    emoji ||= '⭐';
+  } else {
+    script = cleanScript({ scenes: [{ name: 'Start', words: '', then: 'wait' }] });
+  }
+  return db.transaction(() => {
+    for (const key of linesUsed(script)) addVoiceLine.run(c.id, key, words(key));
+    const sort = db.prepare('SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM exercises WHERE character_id = ?').get(c.id).n;
+    return db.prepare('INSERT INTO exercises (character_id, slug, name, emoji, sort, script) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(c.id, slug, cleanWords(name).slice(0, 40) || 'New exercise', String(emoji || '🏃').slice(0, 8), sort, JSON.stringify(script)).lastInsertRowid;
+  })();
+}
+
+parent.get('/exercises', (req, res) => {
+  res.json(db.prepare('SELECT e.id, e.name, e.emoji, e.character_id AS characterId, c.name AS characterName FROM exercises e JOIN characters c ON c.id = e.character_id ORDER BY c.id, e.sort, e.id').all());
+});
+
+parent.post('/characters/:id/exercises', (req, res) => {
+  const b = req.body || {};
+  const id = addExercise(Number(req.params.id), { name: b.name, emoji: b.emoji, copyFrom: b.copyFrom, starter: b.starter });
+  res.status(201).json({ id, character: characterDetail(characterRow(Number(req.params.id))) });
+});
+
+parent.put('/exercises/:id', (req, res) => {
+  const e = exerciseRow(Number(req.params.id));
+  const b = req.body || {};
+  const script = 'script' in b ? cleanScript(b.script) : cleanScript(safeJson(e.script));
+  const json = JSON.stringify(script);
+  if (json.length > 200000) throw httpError(400, 'That exercise is too long');
+  db.prepare('UPDATE exercises SET name = ?, emoji = ?, script = ? WHERE id = ?').run(
+    'name' in b ? cleanWords(b.name).slice(0, 40) || e.name : e.name,
+    'emoji' in b ? String(b.emoji || '').slice(0, 8) || e.emoji : e.emoji,
+    json, e.id);
+  res.json(characterDetail(characterRow(e.character_id)));
+});
+
+parent.delete('/exercises/:id', (req, res) => {
+  const e = exerciseRow(Number(req.params.id));
+  db.prepare('DELETE FROM exercises WHERE id = ?').run(e.id);
+  res.json(characterDetail(characterRow(e.character_id)));
 });
 
 parent.delete('/characters/:id/exercise', (req, res) => {
@@ -788,20 +847,43 @@ parent.put('/characters/:id/lines/:line', audioUpload.single('audio'), (req, res
     const seconds = wavSeconds(tmp);
     if (!seconds) throw httpError(400, 'That recording is not a WAV file');
     moveFile(tmp, path.join(voiceDir(c.id), `${line}.wav`));
-    db.prepare(`INSERT INTO character_lines (character_id, line, version, seconds) VALUES (?, ?, ?, ?)
-      ON CONFLICT(character_id, line) DO UPDATE SET version = excluded.version, seconds = excluded.seconds`)
-      .run(c.id, line, newVersion(), seconds);
+    db.prepare(`INSERT INTO voice_lines (character_id, key, text, version, seconds) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(character_id, key) DO UPDATE SET version = excluded.version, seconds = excluded.seconds`)
+      .run(c.id, line, starterText(line), newVersion(), seconds);
     res.json(characterDetail(c));
   } finally {
     if (tmp) fs.rmSync(tmp, { force: true });
   }
 });
 
+// New lines: { texts: ['Hold it!', …] } -> their keys, in order.
+parent.post('/characters/:id/lines', (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  const texts = (Array.isArray(req.body?.texts) ? req.body.texts : []).map(cleanWords).slice(0, 200);
+  if (!texts.length) throw httpError(400, 'No words for the new line');
+  const keys = db.transaction(() => texts.map((t) => {
+    const key = newLineKey();
+    addVoiceLine.run(c.id, key, t);
+    return key;
+  }))();
+  res.status(201).json({ keys, character: characterDetail(characterRow(c.id)) });
+});
+
+// The words a line says (shown on screen too, unless a scene has its own).
+parent.put('/characters/:id/lines/:line/words', (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  const line = String(req.params.line);
+  if (!LINE_KEY.test(line)) throw httpError(400, 'Bad line name');
+  db.prepare(`INSERT INTO voice_lines (character_id, key, text) VALUES (?, ?, ?)
+    ON CONFLICT(character_id, key) DO UPDATE SET text = excluded.text`).run(c.id, line, cleanWords(req.body?.text));
+  res.json(characterDetail(c));
+});
+
 parent.delete('/characters/:id/lines/:line', (req, res) => {
   const c = characterRow(Number(req.params.id));
   const line = String(req.params.line);
   if (!LINE_KEY.test(line)) throw httpError(400, 'Bad line name');
-  db.prepare('DELETE FROM character_lines WHERE character_id = ? AND line = ?').run(c.id, line);
+  db.prepare('DELETE FROM voice_lines WHERE character_id = ? AND key = ?').run(c.id, line);
   fs.rmSync(path.join(voiceDir(c.id), `${line}.wav`), { force: true });
   res.json(characterDetail(c));
 });
@@ -956,7 +1038,11 @@ function exerciseJob(characterId) {
       }
       const marks = {};
       for (const [name, list] of Object.entries(before.marks || {})) if (names.has(name)) marks[name] = list;
-      setExercise({ status: 'ready', error: null, version: newVersion(), animations: r.animations, uses, marks });
+      const ex = { status: 'ready', error: null, version: newVersion(), animations: r.animations, uses, marks };
+      setExercise(ex);
+      // A first model with "get into position" animations starts out with Hug & Starfish to edit.
+      const none = !db.prepare('SELECT 1 FROM exercises WHERE character_id = ?').get(characterId);
+      if (none && starfishScript(ex)) addExercise(characterId, { starter: 'starfish' });
       console.log(`character ${characterId}: exercise model ${r.before} -> ${r.after} triangles, ${r.animations.length} animations`);
     } catch (e) {
       setExercise({ ...before, status: 'error', error: String(e.message || e) });

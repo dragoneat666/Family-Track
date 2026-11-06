@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
+import { starfishScript, starterText, linesUsed } from './exerciseScript.js';
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const raw = new DatabaseSync(path.join(DATA_DIR, 'family-track.db'));
@@ -165,13 +166,67 @@ const MIGRATIONS = [
   `,
   // A partner's own wording for lines: JSON { lineKey: text }. Missing = the
   // app's standard wording.
-  `ALTER TABLE characters ADD COLUMN phrases TEXT;`
+  `ALTER TABLE characters ADD COLUMN phrases TEXT;`,
+  // Exercises a grown-up edits like a movie: each character has its own, made
+  // of scenes (see exerciseScript.js). Voice lines become a library of clips
+  // with the words they say, instead of a fixed list. Hug & Starfish, which
+  // used to be built in, becomes a script for every partner that had it, and
+  // a kid's rounds now count both sides (old rounds counted each side).
+  () => {
+    db.exec(`
+      CREATE TABLE voice_lines (
+        character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        text TEXT NOT NULL DEFAULT '',
+        version INTEGER,
+        seconds REAL,
+        PRIMARY KEY (character_id, key)
+      );
+      CREATE TABLE exercises (
+        id INTEGER PRIMARY KEY,
+        character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+        slug TEXT NOT NULL,
+        name TEXT NOT NULL,
+        emoji TEXT NOT NULL DEFAULT '⭐',
+        sort INTEGER NOT NULL DEFAULT 0,
+        script TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    const json = (s) => { try { return JSON.parse(s) || {}; } catch { return {}; } };
+    const addLine = db.prepare(`INSERT INTO voice_lines (character_id, key, text, version, seconds) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(character_id, key) DO NOTHING`);
+    for (const c of db.prepare('SELECT * FROM characters ORDER BY id').all()) {
+      const phrases = json(c.phrases);
+      const words = (key) => phrases[key] || starterText(key);
+      const script = c.exercise ? starfishScript(json(c.exercise)) : null;
+      const recorded = new Map(db.prepare('SELECT line, version, seconds FROM character_lines WHERE character_id = ?').all(c.id).map((l) => [l.line, l]));
+      // Lines in the order they're used, then any others that were recorded.
+      for (const key of [...linesUsed(script), ...recorded.keys()]) {
+        const l = recorded.get(key);
+        addLine.run(c.id, key, words(key), l?.version ?? null, l?.seconds ?? null);
+      }
+      if (script) {
+        db.prepare("INSERT INTO exercises (character_id, slug, name, emoji, script) VALUES (?, 'starfish', 'Hug & Starfish', '⭐', ?)")
+          .run(c.id, JSON.stringify(script));
+      }
+    }
+    db.exec('DROP TABLE character_lines;');
+    for (const p of db.prepare('SELECT id, exercise_settings FROM profiles WHERE exercise_settings IS NOT NULL').all()) {
+      const settings = json(p.exercise_settings);
+      if (settings.starfish?.rounds) {
+        settings.starfish.rounds = Math.max(1, Math.ceil(settings.starfish.rounds / 2));
+        db.prepare('UPDATE profiles SET exercise_settings = ? WHERE id = ?').run(JSON.stringify(settings), p.id);
+      }
+    }
+  }
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;
 for (let v = current; v < MIGRATIONS.length; v++) {
   db.transaction(() => {
-    db.exec(MIGRATIONS[v]);
+    if (typeof MIGRATIONS[v] === 'function') MIGRATIONS[v]();
+    else db.exec(MIGRATIONS[v]);
     db.exec(`PRAGMA user_version = ${v + 1}`);
   })();
 }
