@@ -169,7 +169,8 @@ it exactly as the kid sees it. Each scene has:
   using each kid's own time or a set number of seconds.
 
 A stretch of scenes can repeat for the kid's rounds, with scenes skipped in
-the first round (like "Other side!"). "Copy for the other side" copies scenes
+the first round (like "Let's do it again!") or the last round (like a rest
+before the next round). "Copy for the other side" copies scenes
 with left and right swapped in the words, the animations (.L/.R) and the voice
 lines. "Make voice lines from the words" and "Split one recording into the
 scenes" give a whole exercise its voice in one go. Changes save by themselves.

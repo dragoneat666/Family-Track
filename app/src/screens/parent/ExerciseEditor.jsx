@@ -18,7 +18,7 @@ import { clock } from './characterFiles.js';
 
 const newId = () => Math.random().toString(16).slice(2, 10);
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3];
-const blankScene = () => ({ id: newId(), name: '', words: '', notFirst: false, move: null, voice: null, then: 'go', seconds: null });
+const blankScene = () => ({ id: newId(), name: '', words: '', notFirst: false, notLast: false, move: null, voice: null, then: 'go', seconds: null });
 const round2 = (n) => Math.round(n * 100) / 100;
 
 // "left" <-> "right" in words, and in animation names (Starfish_Sit_Up.L <-> .R).
@@ -394,7 +394,7 @@ export default function ExerciseEditor({ character, exercise, call, reload, onCl
           {layout.map(({ s, t, x, w }, i) => (
             <div key={s.id} className={`ee-scene${s.id === selected ? ' selected' : ''}${s.id === nowScene ? ' now' : ''}`}
               style={{ left: x, width: w }} onClick={() => goTo(s.id)}>
-              <div className="ee-scene-name">{i + 1}{s.notFirst ? ' ↺' : ''} {s.name}</div>
+              <div className="ee-scene-name">{i + 1}{s.notFirst ? ' ⏭first' : ''}{s.notLast ? ' ⏭last' : ''} {s.name}</div>
               <div className="ee-lane">
                 {s.move && <div className="ee-blk move" style={{ width: pct(t.move || t.main, t.length) }}>{s.move.loop ? '↻ ' : t.move ? '' : '📌 '}{s.move.clip}</div>}
                 {!s.move && <div className="ee-blk still" style={{ width: pct(t.main, t.length) }}>holds still</div>}
@@ -625,10 +625,16 @@ function SceneInspector({
       </div>
 
       {inRepeat && (
-        <label className="inline check small">
-          <input type="checkbox" checked={scene.notFirst} onChange={(e) => patch({ notFirst: e.target.checked })} />
-          Skip it in the first round (like “Other side!” before starting again)
-        </label>
+        <>
+          <label className="inline check small">
+            <input type="checkbox" checked={!!scene.notFirst} onChange={(e) => patch({ notFirst: e.target.checked })} />
+            Skip it in the first round (like “Let's do it again!”)
+          </label>
+          <label className="inline check small">
+            <input type="checkbox" checked={!!scene.notLast} onChange={(e) => patch({ notLast: e.target.checked })} />
+            Skip it in the last round (like a rest before the next round)
+          </label>
+        </>
       )}
     </div>
   );

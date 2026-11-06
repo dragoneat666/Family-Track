@@ -6,7 +6,7 @@
 // script = {
 //   defaults: { wait, hold, rounds },     used until a grown-up sets them per kid
 //   repeat: { from: sceneId, to: sceneId } | null,
-//   scenes: [{ id, name, words, notFirst,
+//   scenes: [{ id, name, words, notFirst, notLast,   (skipped in the first / last round)
 //     move: { clip, from, to, speed, loop } | null,   to < from plays it backwards
 //     voice: { line, at } | null,                       at = seconds into the scene
 //     then: 'go' | 'wait' | 'count', seconds: number | null  (null = the kid's own time)
@@ -77,6 +77,7 @@ export function cleanScript(input) {
       name: text(sc?.name, 40),
       words: text(sc?.words, 160),
       notFirst: !!sc?.notFirst,
+      notLast: !!sc?.notLast,
       move: m && typeof m.clip === 'string' && m.clip ? {
         clip: m.clip.slice(0, 120),
         from: round3(num(m.from, 0, 3600, 0)),
@@ -120,7 +121,7 @@ export function starfishScript(ex) {
   // Scenes show their voice line's words (no words of their own), so changing
   // a line's words changes the screen too.
   const say = (line, words, rest) => ({
-    id: newId(), name: '', words: '', notFirst: false, move: null,
+    id: newId(), name: '', words: '', notFirst: false, notLast: false, move: null,
     voice: { line, at: 0 }, then: 'go', seconds: null, ...rest
   });
   const side = (top) => {

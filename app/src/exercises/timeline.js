@@ -24,7 +24,8 @@ export function repeatRange(script) {
 }
 
 // The scenes in playing order: [{ scene, index, round }] (round only for
-// repeated scenes). Scenes marked notFirst are left out of round 1.
+// repeated scenes). Scenes marked notFirst are left out of round 1, and
+// notLast out of the last round (with one round, both).
 export function sequence(script, rounds) {
   const scenes = script?.scenes || [];
   const range = repeatRange(script);
@@ -34,6 +35,7 @@ export function sequence(script, rounds) {
   for (let r = 1; r <= rounds; r++) {
     for (let i = range[0]; i <= range[1]; i++) {
       if (scenes[i].notFirst && r === 1) continue;
+      if (scenes[i].notLast && r === rounds) continue;
       out.push({ scene: scenes[i], index: i, round: r });
     }
   }
