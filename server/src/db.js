@@ -219,7 +219,10 @@ const MIGRATIONS = [
         db.prepare('UPDATE profiles SET exercise_settings = ? WHERE id = ?').run(JSON.stringify(settings), p.id);
       }
     }
-  }
+  },
+  // A kid's own brushing setting from a tracking check, per place they brush:
+  // JSON { standing|sitting: { threshold, d, at } } (d = face size then).
+  `ALTER TABLE profiles ADD COLUMN brush_tuning TEXT;`
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { api, canUseCamera } from '../../api.js';
 import { openCamera, startTracker } from '../../brush/tracker.js';
 import { drawOverlay } from '../../brush/overlay.js';
+import { SPOTS, suggest } from '../../brush/tuning.js';
 
 // A guided ~30-second check of the brushing detection: hold still, move the
 // head, move the phone, then brush. Shows how much of each counted as
 // brushing and sends only the numbers (never any picture) to the server, so
-// the detection can be tuned from real use.
+// the detection can be tuned from real use. Done by a kid, it can also set
+// that kid's own setting for where they brush (standing or sitting).
 const PHASES = [
   { key: 'still', seconds: 6, text: 'Hold still and look at the camera.', want: false },
   { key: 'head', seconds: 8, text: 'Move your head around. No brushing.', want: false },
@@ -17,6 +19,46 @@ const LABELS = { still: 'Holding still', head: 'Moving head', phone: 'Moving pho
 const SETTLE_MS = 1000; // ignore the first second of each step while you switch
 
 export default function TrackingCheck({ onExit }) {
+  const [kids, setKids] = useState(null);
+  const [who, setWho] = useState(null); // { kidId, spot } once picked
+  const [kidId, setKidId] = useState('');
+  const [spot, setSpot] = useState('standing');
+
+  useEffect(() => {
+    api.get('/api/parent/profiles')
+      .then((all) => setKids(all.filter((p) => !p.isParent)))
+      .catch(() => setKids([]));
+  }, []);
+
+  if (who) return <Check kid={(kids || []).find((k) => k.id === who.kidId) ?? null} spot={who.spot} onExit={onExit} />;
+
+  return (
+    <div className="center-screen">
+      <div className="card stack narrow">
+        <h2>📏 Tracking check</h2>
+        <p className="muted">About 30 seconds. Set the phone or tablet where it'll really be, and stand or sit where they really brush.</p>
+        <label>Who's doing it?
+          <select value={kidId} onChange={(e) => setKidId(e.target.value)} disabled={!kids}>
+            <option value="">Just me (a grown-up)</option>
+            {(kids || []).map((k) => <option key={k.id} value={k.id}>{k.emoji} {k.name}</option>)}
+          </select>
+        </label>
+        <label>Where?
+          <select value={spot} onChange={(e) => setSpot(e.target.value)}>
+            {Object.entries(SPOTS).map(([k, s]) => <option key={k} value={k}>{s.emoji} {s.label}</option>)}
+          </select>
+        </label>
+        {kidId && <p className="muted small">Afterwards you can save a setting just for them when brushing {SPOTS[spot].short}.</p>}
+        <div className="row wrap">
+          <button className="btn primary" onClick={() => setWho({ kidId: Number(kidId) || null, spot })}>Start</button>
+          <button className="btn link" onClick={onExit}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Check({ kid, spot, onExit }) {
   const videoRef = useRef(null);
   const overlayRef = useRef(null);
   const samplesRef = useRef([]);
@@ -42,6 +84,7 @@ export default function TrackingCheck({ onExit }) {
         if (cancelled) return;
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
+        // Always the shared setting here, so checks can be compared.
         stop = await startTracker(videoRef.current, {
           sensitivity: settings.sensitivity,
           onUpdate: (st) => {
@@ -113,7 +156,7 @@ export default function TrackingCheck({ onExit }) {
     setSummary(rows);
     setStage('done');
     try {
-      await api.post('/api/parent/tracking-log', { sensitivity, userAgent: navigator.userAgent, summary: rows, samples });
+      await api.post('/api/parent/tracking-log', { sensitivity, userAgent: navigator.userAgent, kidId: kid?.id ?? null, spot, summary: rows, samples });
       setSent('Numbers sent to the server for tuning (no pictures) ✓');
     } catch (e) {
       setSent(`Couldn't send the numbers: ${e.message}`);
@@ -137,22 +180,9 @@ export default function TrackingCheck({ onExit }) {
       <div className="center-screen">
         <div className="card stack" style={{ maxWidth: 560, width: '100%' }}>
           <h2>Tracking check results</h2>
-          <table className="history">
-            <tbody>
-              <tr className="muted small"><td>Step</td><td>Counted as brushing</td><td>Should be</td><td>Face seen</td></tr>
-              {summary.map((r) => {
-                const good = r.want ? r.counted >= 60 : r.counted <= 15;
-                return (
-                  <tr key={r.key}>
-                    <td>{LABELS[r.key]}</td>
-                    <td><b>{r.counted}%</b> {good ? '✅' : '⚠️'}</td>
-                    <td className="muted">{r.want ? 'most of it' : 'almost none'}</td>
-                    <td className="muted">{r.faceSeen}%</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <p className="muted small">With the setting everyone shares now (under Brushing):</p>
+          <ResultTable rows={summary.map((r) => ({ key: r.key, want: r.want, counted: r.counted, faceSeen: r.faceSeen }))} />
+          {kid && <OwnSetting kid={kid} spot={spot} samples={samplesRef.current} />}
           <p className="muted small">{sent}</p>
           <button className="btn primary" onClick={onExit}>Done</button>
         </div>
@@ -187,10 +217,72 @@ export default function TrackingCheck({ onExit }) {
         {live && (
           <div className="tracking-info">
             mouth {live.mouth.toFixed(1)} · face moving {live.moving.toFixed(2)} · counts {live.score.toFixed(1)} / needs {live.threshold}
+            {live.sample?.d ? ` · face ${Math.round(live.sample.d)}` : ''}
           </div>
         )}
         <button className="btn link" onClick={onExit}>Cancel</button>
       </div>
+    </div>
+  );
+}
+
+function ResultTable({ rows }) {
+  return (
+    <table className="history">
+      <tbody>
+        <tr className="muted small"><td>Step</td><td>Counted as brushing</td><td>Should be</td>{rows[0]?.faceSeen != null && <td>Face seen</td>}</tr>
+        {rows.map((r) => {
+          const good = r.want ? r.counted >= 60 : r.counted <= 15;
+          return (
+            <tr key={r.key}>
+              <td>{LABELS[r.key]}</td>
+              <td><b>{r.counted}%</b> {good ? '✅' : '⚠️'}</td>
+              <td className="muted">{r.want ? 'most of it' : 'almost none'}</td>
+              {r.faceSeen != null && <td className="muted">{r.faceSeen}%</td>}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// Works out the best setting for this kid from the check and offers to save it.
+function OwnSetting({ kid, spot, samples }) {
+  const [best] = useState(() => suggest(samples));
+  const [saved, setSaved] = useState('');
+  const where = SPOTS[spot].short;
+
+  async function save() {
+    setSaved('Saving…');
+    try {
+      await api.put(`/api/parent/profiles/${kid.id}/brush-tuning/${spot}`, { threshold: best.threshold, d: best.d });
+      setSaved(`Saved ✓ ${kid.name} now uses this when brushing ${where}.`);
+    } catch (e) {
+      setSaved(`Couldn't save: ${e.message}`);
+    }
+  }
+
+  if (!best) {
+    return (
+      <div className="stack">
+        <h3>Just for {kid.name}</h3>
+        <p className="small">No setting tells their brushing apart from moving around well enough this time.
+          Try again closer to the camera, with more light, or brushing a bit bigger.</p>
+      </div>
+    );
+  }
+  const r = best.result;
+  return (
+    <div className="stack">
+      <h3>Just for {kid.name}, {where}</h3>
+      <p className="muted small">With a setting of {best.threshold} (the shared “normal” is 8), this check would have gone:</p>
+      <ResultTable rows={PHASES.map((p) => ({ key: p.key, want: p.want, counted: r[p.key] ?? 0 }))} />
+      {kid.brushTuning?.[spot] && <p className="muted small">This replaces their {where} setting of {kid.brushTuning[spot].threshold}.</p>}
+      <div className="row wrap">
+        <button className="btn primary" onClick={save} disabled={!!saved && !saved.startsWith('Couldn')}>Use this for {kid.name} {where}</button>
+      </div>
+      {saved && <p className="small">{saved}</p>}
     </div>
   );
 }

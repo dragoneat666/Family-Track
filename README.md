@@ -4,7 +4,10 @@ A family app for the house, starting with kids' tooth brushing:
 
 - **Brushing**: the tablet's front camera checks the kid is really brushing.
   The countdown (2:00, then 0:15 for the front teeth) only moves while they
-  are. Stop brushing or walk away and it just waits.
+  are. Stop brushing or walk away and it just waits. A tracking check done
+  by a kid where they brush (standing at the sink, or sitting further
+  away) can give them their own setting; with both saved, it picks by how
+  big their face looks to the camera.
 - **Building**: each finished brush (at least 6 hours after the last one, so
   morning and bedtime both count) unlocks one piece of a 3D character.
   When the whole character is built, it dances. Each kid picks how hard

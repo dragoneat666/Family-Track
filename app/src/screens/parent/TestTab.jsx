@@ -90,7 +90,8 @@ export default function TestTab({ onAuthLost, show }) {
       <div className="card stack">
         <h3>📏 Tracking check</h3>
         <p className="muted">About 30 seconds: hold still, move your head, move the phone, then brush. It shows how much of each
-          counted as brushing, and sends just the numbers (never a picture) to the server so the detection can be tuned.</p>
+          counted as brushing, and sends just the numbers (never a picture) to the server so the detection can be tuned.
+          Done by a kid where they brush (standing or sitting), it can save a setting just for them.</p>
         <button className="btn primary" onClick={() => show(<TrackingCheck onExit={() => show(null)} />)}>Start tracking check</button>
       </div>
 

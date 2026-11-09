@@ -212,6 +212,19 @@ function kidState(profileId) {
 
 app.get('/api/kids/:id/state', (req, res) => res.json(kidState(Number(req.params.id))));
 
+// A kid's own brushing settings from tracking checks (see app brush/tuning.js).
+const TUNING_SPOTS = ['standing', 'sitting'];
+function brushTuning(row) {
+  const t = safeJson(row.brush_tuning);
+  const out = {};
+  for (const spot of TUNING_SPOTS) {
+    const s = t[spot];
+    if (s && Number(s.threshold) > 0) out[spot] = { threshold: Number(s.threshold), d: Number(s.d) || null, at: s.at || null };
+  }
+  return out;
+}
+app.get('/api/kids/:id/brush-tuning', (req, res) => res.json(brushTuning(profileRow(Number(req.params.id)))));
+
 // Kids change this themselves in Settings (no PIN).
 app.put('/api/kids/:id/puzzle', (req, res) => {
   const level = String(req.body?.level ?? '');
@@ -474,7 +487,10 @@ parent.post('/tracking-log', (req, res) => {
   fs.mkdirSync(dir, { recursive: true });
   const name = `${new Date().toISOString().replace(/[:.]/g, '-')}-${req.account.id}.json`;
   const { sensitivity, userAgent, summary, samples } = req.body;
-  fs.writeFileSync(path.join(dir, name), JSON.stringify({ sensitivity, userAgent, summary, samples }));
+  // Who did the check and where (only ids and the spot; names stay out of the logs).
+  const kidId = Number(req.body.kidId) || null;
+  const spot = TUNING_SPOTS.includes(req.body.spot) ? req.body.spot : null;
+  fs.writeFileSync(path.join(dir, name), JSON.stringify({ sensitivity, userAgent, kidId, spot, summary, samples }));
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
   for (const old of files.slice(0, -30)) fs.rmSync(path.join(dir, old), { force: true });
   res.json({ ok: true });
@@ -499,8 +515,28 @@ parent.get('/profiles', (req, res) => {
   const rows = db.prepare('SELECT * FROM profiles WHERE is_test = 0 ORDER BY is_parent DESC, sort, id').all();
   res.json(rows.map((p) => {
     const c = activeCharacter(p.id);
-    return { ...toProfile(p), characterId: c?.id ?? null, isMe: p.id === req.account.id };
+    return { ...toProfile(p), characterId: c?.id ?? null, isMe: p.id === req.account.id, brushTuning: brushTuning(p) };
   }));
+});
+
+// Save (threshold > 0) or clear (threshold null) a kid's setting for one spot.
+parent.put('/profiles/:id/brush-tuning/:spot', (req, res) => {
+  const p = profileRow(Number(req.params.id));
+  const spot = req.params.spot;
+  if (p.is_parent || !TUNING_SPOTS.includes(spot)) throw httpError(400, 'Pick a kid and standing or sitting');
+  const t = brushTuning(p);
+  const threshold = Number(req.body?.threshold);
+  if (req.body?.threshold == null) delete t[spot];
+  else if (Number.isFinite(threshold) && threshold > 0) {
+    const d = Number(req.body.d);
+    t[spot] = {
+      threshold: Math.round(Math.min(20, Math.max(1.5, threshold)) * 100) / 100,
+      d: Number.isFinite(d) && d > 0 ? Math.round(Math.min(1000, d) * 10) / 10 : null,
+      at: new Date().toISOString()
+    };
+  } else throw httpError(400, 'Bad setting');
+  db.prepare('UPDATE profiles SET brush_tuning = ? WHERE id = ?').run(Object.keys(t).length ? JSON.stringify(t) : null, p.id);
+  res.json(t);
 });
 
 // A grown-up account can get a PIN now, or none: then its owner picks one

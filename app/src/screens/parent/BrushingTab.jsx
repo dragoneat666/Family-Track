@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api.js';
 import { useParentCall } from './useParentCall.js';
+import { SPOTS } from '../../brush/tuning.js';
 
 export default function BrushingTab({ onAuthLost }) {
   const { error, call } = useParentCall(onAuthLost);
@@ -60,6 +61,8 @@ export default function BrushingTab({ onAuthLost }) {
         </form>
       )}
 
+      <KidSettings call={call} />
+
       <div className="card">
         <h3>Recent brushing</h3>
         {!sessions.length && <p className="muted">Nothing yet.</p>}
@@ -77,6 +80,45 @@ export default function BrushingTab({ onAuthLost }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// Each kid's own setting from a tracking check (Test → Tracking check), per
+// place they brush. Brushing uses the one whose face size is closest.
+function KidSettings({ call }) {
+  const [kids, setKids] = useState([]);
+  const load = () => call(() => api.get('/api/parent/profiles')).then((all) => all && setKids(all.filter((p) => !p.isParent)));
+  useEffect(() => { load(); }, []);
+
+  async function clear(kid, spot) {
+    if (await call(() => api.put(`/api/parent/profiles/${kid.id}/brush-tuning/${spot}`, { threshold: null }))) load();
+  }
+
+  if (!kids.length) return null;
+  return (
+    <div className="card stack">
+      <h3>Each kid's own setting</h3>
+      <p className="muted small">Made by a tracking check (Test tab) done by that kid where they brush. It's used instead of the
+        setting above. With both standing and sitting saved, it picks by how far away their face is. Lower numbers count smaller
+        movements; the shared “normal” is 8.</p>
+      <table className="history">
+        <tbody>
+          {kids.map((k) => (
+            <tr key={k.id}>
+              <td>{k.emoji} {k.name}</td>
+              {Object.entries(SPOTS).map(([spot, s]) => {
+                const t = k.brushTuning?.[spot];
+                return (
+                  <td key={spot}>
+                    {s.emoji} {s.short}: {t ? <><b>{t.threshold}</b> <button className="btn small" onClick={() => clear(k, spot)}>Clear</button></> : <span className="muted">shared</span>}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

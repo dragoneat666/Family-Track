@@ -52,7 +52,11 @@ export default function Brush({ profile, testMode = false, onExit }) {
         if (!canUseCamera) {
           throw new Error('Brushing uses the camera, so it only works in the Family Track app on a phone or tablet.');
         }
-        const s = await api.get('/api/settings');
+        const [s, tuning] = await Promise.all([
+          api.get('/api/settings'),
+          // The kid's own setting from a tracking check, if a grown-up saved one.
+          profile && !testMode && !profile.isTest ? api.get(`/api/kids/${profile.id}/brush-tuning`).catch(() => null) : null
+        ]);
         if (cancelled) return;
         setSettings(s);
         try {
@@ -66,6 +70,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
         await video.play().catch(() => {});
         stopTracker = await startTracker(video, {
           sensitivity: s.sensitivity,
+          tuning,
           onUpdate: (st) => {
             statusRef.current = st;
             setStatus(st);

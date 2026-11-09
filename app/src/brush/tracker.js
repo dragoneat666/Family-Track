@@ -1,4 +1,5 @@
 import { FilesetResolver, FaceDetector } from '@mediapipe/tasks-vision';
+import { thresholdFor } from './tuning.js';
 
 // Watches the camera for real brushing. Everything happens on the device:
 // frames are looked at in memory and thrown away. Nothing is saved or sent.
@@ -19,6 +20,10 @@ import { FilesetResolver, FaceDetector } from '@mediapipe/tasks-vision';
 // ~1 holding still, ~4 moving the head, ~3 moving the phone and ~16
 // brushing; the face moved ~0.2-0.3 eye-widths per check when moving the
 // head or phone and ~0.1 while brushing.
+//
+// Kids sitting further from a tablet (Nov 2026) scored only ~4-6 brushing,
+// with ~1-2 for moving the head, so each kid can have their own setting from
+// a tracking check (see tuning.js).
 
 // Score needed to count as brushing, by sensitivity setting.
 export const THRESHOLDS = { low: 11, normal: 8, high: 6 };
@@ -29,6 +34,7 @@ const PATCH_W = 32;
 const PATCH_H = 24;
 const MAX_SHIFT = 2; // patch pixels tried in each direction when lining frames up
 const NOISE = 6; // per-pixel brightness change ignored as camera noise
+const LOW_NOISE = 3; // also measured (not used yet) to see if it helps faces far away
 
 let detectorPromise = null;
 
@@ -58,10 +64,12 @@ function loadDetector() {
 //   mouth (leftover change after lining up, smoothed), moving (how fast the
 //   face moves, smoothed), and raw per-check numbers in `sample` (used by
 //   the tracking check).
+// tuning: the kid's own settings (tuning.js); used instead of `sensitivity`.
 // Returns stop().
-export async function startTracker(video, { sensitivity = 'normal', onUpdate }) {
+export async function startTracker(video, { sensitivity = 'normal', tuning = null, onUpdate }) {
   const detector = await loadDetector();
-  const threshold = THRESHOLDS[sensitivity] ?? THRESHOLDS.normal;
+  const base = THRESHOLDS[sensitivity] ?? THRESHOLDS.normal;
+  let threshold = thresholdFor(tuning, 0) ?? base;
   const canvas = document.createElement('canvas');
   canvas.width = PATCH_W;
   canvas.height = PATCH_H;
@@ -88,34 +96,46 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
     }
     // Remove overall brightness so the camera's auto-exposure doesn't count.
     mean /= gray.length;
-    for (let i = 0; i < gray.length; i++) gray[i] -= mean;
+    let spread = 0;
+    for (let i = 0; i < gray.length; i++) {
+      gray[i] -= mean;
+      spread += gray[i] * gray[i];
+    }
+    gray.contrast = Math.sqrt(spread / gray.length);
     return gray;
   }
 
-  // Change between two patches: straight (raw) and after the best small shift (aligned).
+  // Change between two patches: straight (raw) and after the best small shift
+  // (aligned); `low` is aligned with a smaller noise cut, only logged for now.
   function change(cur, before) {
-    if (!before) return { raw: 0, aligned: 0 };
+    if (!before) return { raw: 0, aligned: 0, low: 0 };
     let raw = 0;
     let aligned = Infinity;
+    let low = Infinity;
     const m = MAX_SHIFT;
     const count = (PATCH_W - 2 * m) * (PATCH_H - 2 * m);
     for (let sy = -m; sy <= m; sy++) {
       for (let sx = -m; sx <= m; sx++) {
         let sum = 0;
+        let sumLow = 0;
         for (let y = m; y < PATCH_H - m; y++) {
           const row = y * PATCH_W;
           const prow = (y + sy) * PATCH_W + sx;
           for (let x = m; x < PATCH_W - m; x++) {
             const d = Math.abs(cur[row + x] - before[prow + x]);
-            if (d > NOISE) sum += d;
+            if (d > LOW_NOISE) {
+              sumLow += d;
+              if (d > NOISE) sum += d;
+            }
           }
         }
         const v = sum / count;
         if (sx === 0 && sy === 0) raw = v;
         if (v < aligned) aligned = v;
+        if (sumLow / count < low) low = sumLow / count;
       }
     }
-    return { raw, aligned };
+    return { raw, aligned, low };
   }
 
   function step(now) {
@@ -149,17 +169,20 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
     const faceVisible = !!geo && now - lastFaceAt < FACE_LOST_MS;
 
     let region = null;
-    let m = { raw: 0, aligned: 0 };
+    let m = { raw: 0, aligned: 0, low: 0 };
     let raw = 0;
+    let contrast = 0;
     moving = moving * 0.6 + moved * 0.4;
     if (geo) {
       const { ex, ey, d } = geo;
+      threshold = thresholdFor(tuning, d) ?? base;
       // Mouth sits about 1.1 eye-distances below the eyes; the patch reaches
       // a bit lower and wider to take in the hand and brush.
       region = { x: ex - 1.4 * d, y: ey + 0.45 * d, w: 2.8 * d, h: 2.1 * d };
       const patch = grab(region);
       m = change(patch, prevPatch);
       prevPatch = patch;
+      contrast = patch.contrast;
       mouth = mouth * 0.6 + m.aligned * 0.4;
       raw = moving > MOVING_FACE ? 0 : m.aligned;
     }
@@ -185,7 +208,10 @@ export async function startTracker(video, { sensitivity = 'normal', onUpdate }) 
         d: round(geo?.d ?? 0),
         mouthRaw: round(m.raw),
         mouthAligned: round(m.aligned),
+        mouthLow: round(m.low),
+        contrast: round(contrast),
         score: round(score),
+        threshold,
         brushing
       }
     });
