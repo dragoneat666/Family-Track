@@ -130,13 +130,14 @@ function AddCharacter({ upload, setError, onAdded }) {
           <input type="file" accept=".glb" ref={exercise} />
         </label>
       ) : (
-        <label>Pieces — pick all the piece .glb files. They must all be exported from the whole model without moving them.
+        <label>Pieces — one .glb with each piece as its own object (named like “Left Boot”), or a .glb per piece.
+          Either way, exported from the whole model without moving them.
           <input type="file" multiple ref={pieces} />
         </label>
       )}
       <p className="muted small">{partnerOnly
         ? 'Every kid can pick an exercise-only partner. Its voice and exercises are set up on its page next.'
-        : 'The dancing model, dances and exercise model can be added on its page next.'}</p>
+        : 'The dancing model, dances and exercise model can be added on its page next. Big files take a minute to get ready.'}</p>
       <button className="btn primary">Upload</button>
     </form>
   );

@@ -26,6 +26,59 @@ function getIO() {
 
 export const characterDir = (characterId) => path.join(ASSETS_DIR, String(characterId));
 
+// The JSON part of a .glb, read without loading the rest (names and counts).
+// Null for anything that isn't a .glb.
+function glbJson(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const head = Buffer.alloc(20);
+    fs.readSync(fd, head, 0, 20, 0);
+    if (head.readUInt32LE(0) !== 0x46546c67 || head.readUInt32LE(16) !== 0x4e4f534a) return null; // "glTF", "JSON"
+    const json = Buffer.alloc(head.readUInt32LE(12));
+    fs.readSync(fd, json, 0, json.length, 20);
+    return JSON.parse(json.toString('utf8'));
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+// The objects at the top of a .glb's scene that have a mesh somewhere in
+// them, as [{ index, name }] (index = place among the scene's top nodes).
+// A file from Blender with every piece in it has one per piece.
+export function glbObjects(file) {
+  const g = glbJson(file);
+  if (!g?.scenes?.length) return [];
+  const nodes = g.nodes || [];
+  const hasMesh = (i, seen = new Set()) => {
+    if (seen.has(i) || !nodes[i]) return false;
+    seen.add(i);
+    return nodes[i].mesh !== undefined || (nodes[i].children || []).some((c) => hasMesh(c, seen));
+  };
+  const top = g.scenes[g.scene ?? 0]?.nodes || [];
+  return top.map((n, index) => ({ index, node: n, name: nodes[n]?.name || '' })).filter((o) => hasMesh(o.node));
+}
+
+// The animations' names in a .glb (empty for .fbx or a file with none).
+export function glbAnimations(file) {
+  return (glbJson(file)?.animations || []).map((a, i) => a.name || `Dance ${i + 1}`);
+}
+
+// Saves each wanted top object of a many-piece .glb as its own file, as if
+// it had been exported on its own: outs = [{ index, out }].
+export async function splitPieces(file, outs) {
+  const io = await getIO();
+  for (const { index, out } of outs) {
+    const doc = await io.read(file);
+    const scene = doc.getRoot().getDefaultScene() || doc.getRoot().listScenes()[0];
+    scene.listChildren().forEach((n, i) => { if (i !== index) n.dispose(); });
+    await doc.transform(prune());
+    await io.write(out, doc);
+  }
+}
+
 function countTriangles(doc) {
   let tris = 0;
   for (const mesh of doc.getRoot().listMeshes()) {
@@ -169,22 +222,26 @@ function readFbxAnimation(file) {
 
 // Keeps only the skeleton and its animation. The app plays it on rigged.glb
 // by matching bone names, so a dance from any file with the same rig works.
-// Takes .glb (Meshy) or .fbx (Mixamo "Without Skin" downloads).
-export async function processDance(characterId, danceId, file) {
+// Takes .glb (Meshy) or .fbx (Mixamo "Without Skin" downloads). `which` picks
+// one animation from a file with several (one dance each).
+export async function processDance(characterId, danceId, file, which = 0) {
   const io = await getIO();
   const doc = isFbx(file) ? await readFbxAnimation(file) : await io.read(file);
   const root = doc.getRoot();
   const anims = root.listAnimations();
-  if (!anims.length) throw new Error('This file has no animation in it');
+  if (!anims[which]) throw new Error('This file has no animation in it');
   for (const node of root.listNodes()) node.setMesh(null).setSkin(null);
   for (const skin of root.listSkins()) skin.dispose();
-  for (const extra of anims.slice(1)) extra.dispose();
+  anims.forEach((a, i) => { if (i !== which) a.dispose(); });
   await doc.transform(prune({ keepLeaves: true }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   const out = path.join(characterDir(characterId), 'dances', `${danceId}.glb`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   await io.write(out, doc);
-  return anims[0].getName();
+  return anims[which].getName();
 }
+
+// "Hip_Hop_Dance_2" -> "Hip Hop Dance 2"; "Right Leg" stays.
+export const cleanObjectName = (name, fallback) => String(name || '').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || fallback;
 
 // "Meshy_AI_Bumblebee_biped_Animation_Hip_Hop_Dance_withSkin.glb" -> "Hip Hop Dance"
 export function niceName(filename) {

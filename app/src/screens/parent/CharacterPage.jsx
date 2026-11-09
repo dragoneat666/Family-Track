@@ -164,14 +164,15 @@ function Build({ character, call, upload, setError, reload }) {
 
       <div className="card stack">
         <h4>Dancing model {character.hasRigged ? '✓' : '(none yet)'}</h4>
-        <p className="muted small">The rigged .glb the kids see dance after the build is finished.</p>
+        <p className="muted small">The rigged .glb the kids see dance after the build is finished. If that file has the
+          dances in it too, upload it under Dances as well: each animation in it becomes a dance.</p>
         <div className="row">
           <input type="file" ref={rigged} />
           <button className="btn" onClick={() => uploadFiles(rigged, 'rigged', `/api/parent/characters/${character.id}/rigged`, true)}>
             {character.hasRigged ? 'Replace' : 'Upload'}
           </button>
         </div>
-        <h4>Dances <span className="muted small">(.glb, or Mixamo .fbx “Without Skin”)</span></h4>
+        <h4>Dances <span className="muted small">(.glb, one dance or many in one file; or Mixamo .fbx “Without Skin”)</span></h4>
         <ul className="piece-list">
           {character.dances.map((d) => (
             <li key={d.id} className="row">

@@ -120,13 +120,15 @@ manager) and out of git.
 
 Parent area → **Characters** → Add. Upload:
 
-1. **Pieces**: one `.glb` per piece, all exported from the whole model
-   *without moving them*, so each piece already sits where it belongs.
-   They unlock bottom-up at first (feet first, head last); reorder as you
-   like.
+1. **Pieces**: one `.glb` from Blender with each piece as its own object
+   (the pieces are named after the objects), or one `.glb` per piece. All
+   exported from the whole model *without moving them*, so each piece
+   already sits where it belongs. They unlock bottom-up at first (feet
+   first, head last); reorder as you like.
 2. **Dancing model** (optional): the rigged `.glb`.
 3. **Dances** (optional): animation `.glb` files made for the same rig
-   (e.g. Meshy/Mixamo exports). Only the motion is kept from each.
+   (e.g. Meshy/Mixamo exports); a file with several animations becomes one
+   dance each. Only the motion is kept.
 
 Big files are fine. The server shrinks them (merges the pieces into one
 file, WebP textures, simplified meshes, meshopt compression) and keeps the

@@ -12,7 +12,10 @@ import {
 import {
   LINE_KEY, cleanScript, cleanSettings, starfishScript, starterText, linesUsed, newLineKey
 } from './exerciseScript.js';
-import { buildCharacterModel, processRigged, processDance, processExercise, characterDir, niceName } from './assets.js';
+import {
+  buildCharacterModel, processRigged, processDance, processExercise, characterDir, niceName,
+  glbObjects, glbAnimations, splitPieces, cleanObjectName
+} from './assets.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
 const app = express();
@@ -682,8 +685,7 @@ parent.post('/characters', characterUpload, (req, res) => {
     .run(String(req.body.name).trim().slice(0, 60), kind, kind === 'partner' ? 'ready' : 'processing', kind === 'partner' ? 1 : 0).lastInsertRowid;
   const jobs = [];
   if (kind !== 'partner') {
-    addPieces(id, pieces);
-    jobs.push(() => rebuild(id));
+    jobs.push(...addPieces(id, pieces), () => rebuild(id));
   } else {
     cleanupFiles(pieces);
   }
@@ -822,9 +824,9 @@ parent.delete('/characters/:id/exercise', (req, res) => {
 parent.post('/characters/:id/pieces', upload.array('pieces', 60), (req, res) => {
   const c = characterRow(Number(req.params.id));
   if (!req.files?.length) throw httpError(400, 'No .glb files received');
-  addPieces(c.id, req.files);
+  const splits = addPieces(c.id, req.files);
   db.prepare("UPDATE characters SET status = 'processing', error = NULL WHERE id = ?").run(c.id);
-  enqueue([() => rebuild(c.id)]);
+  enqueue([...splits, () => rebuild(c.id)]);
   res.status(202).json(characterDetail(characterRow(c.id)));
 });
 
@@ -976,18 +978,41 @@ function enqueue(jobs) {
   for (const job of jobs) queue = queue.then(job).catch((e) => console.error('job failed:', e));
 }
 
+// Adds a piece for each file, or for each object in a file that has several
+// (every piece exported together from Blender, named after the objects).
+// Returns the jobs that split those files up; run them before rebuild().
 function addPieces(characterId, files) {
   const srcDir = path.join(characterDir(characterId), 'src', 'pieces');
   fs.mkdirSync(srcDir, { recursive: true });
   let sort = db.prepare('SELECT COALESCE(MAX(sort), -1) AS s FROM pieces WHERE character_id = ?').get(characterId).s;
+  const addRow = (name) => {
+    const id = db.prepare('INSERT INTO pieces (character_id, name, sort, node_name) VALUES (?, ?, ?, ?)')
+      .run(characterId, name, ++sort, 'pending').lastInsertRowid;
+    db.prepare('UPDATE pieces SET node_name = ? WHERE id = ?').run(`piece_${id}`, id);
+    return id;
+  };
+  const jobs = [];
   // Keep originals so the model can be rebuilt (new pieces, bigger budgets).
   const sorted = [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, undefined, { numeric: true }));
   for (const f of sorted) {
-    const id = db.prepare('INSERT INTO pieces (character_id, name, sort, node_name) VALUES (?, ?, ?, ?)')
-      .run(characterId, niceName(f.originalname), ++sort, 'pending').lastInsertRowid;
-    db.prepare('UPDATE pieces SET node_name = ? WHERE id = ?').run(`piece_${id}`, id);
-    moveFile(f.path, path.join(srcDir, `${id}.glb`));
+    const objects = glbObjects(f.path);
+    if (objects.length <= 1) {
+      moveFile(f.path, path.join(srcDir, `${addRow(niceName(f.originalname))}.glb`));
+      continue;
+    }
+    const outs = objects.map((o, i) => ({ index: o.index, out: path.join(srcDir, `${addRow(cleanObjectName(o.name, `Piece ${i + 1}`))}.glb`) }));
+    const whole = path.join(srcDir, `whole-${Date.now()}-${outs.length}.glb`);
+    moveFile(f.path, whole);
+    jobs.push(async () => {
+      try {
+        await splitPieces(whole, outs);
+        console.log(`character ${characterId}: split ${path.basename(f.originalname)} into ${outs.length} pieces`);
+      } finally {
+        fs.rmSync(whole, { force: true });
+      }
+    });
   }
+  return jobs;
 }
 
 // Devices cache 3D files forever by URL (…?v=<version>), so a version must
@@ -1032,19 +1057,27 @@ function riggedJobs(characterId, file) {
   }];
 }
 
+// One dance per file, or one per animation in a file that has several
+// (named after the animations).
 function danceJobs(characterId, files) {
-  return files.map((f) => {
-    const id = db.prepare('INSERT INTO dances (character_id, name) VALUES (?, ?)').run(characterId, niceName(f.originalname)).lastInsertRowid;
-    return async () => {
-      try {
-        await processDance(characterId, id, f.path);
-        db.prepare("UPDATE dances SET status = 'ready' WHERE id = ?").run(id);
-      } catch (e) {
-        db.prepare("UPDATE dances SET status = 'error', error = ? WHERE id = ?").run(String(e.message || e), id);
-      } finally {
-        fs.rmSync(f.path, { force: true });
-      }
-    };
+  return files.flatMap((f) => {
+    const names = glbAnimations(f.path);
+    const many = names.length > 1;
+    const dances = many ? names.map((n, i) => ({ name: cleanObjectName(n, `Dance ${i + 1}`), which: i })) : [{ name: niceName(f.originalname), which: 0 }];
+    let left = dances.length;
+    return dances.map(({ name, which }) => {
+      const id = db.prepare('INSERT INTO dances (character_id, name) VALUES (?, ?)').run(characterId, name).lastInsertRowid;
+      return async () => {
+        try {
+          await processDance(characterId, id, f.path, which);
+          db.prepare("UPDATE dances SET status = 'ready' WHERE id = ?").run(id);
+        } catch (e) {
+          db.prepare("UPDATE dances SET status = 'error', error = ? WHERE id = ?").run(String(e.message || e), id);
+        } finally {
+          if (--left === 0) fs.rmSync(f.path, { force: true });
+        }
+      };
+    });
   });
 }
 
