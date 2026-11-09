@@ -16,6 +16,7 @@ import {
   buildCharacterModel, processRigged, processDance, processExercise, characterDir, niceName,
   glbObjects, glbAnimations, splitPieces, cleanObjectName
 } from './assets.js';
+import { pieceName, nextStep, stepLabel } from './steps.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
 const app = express();
@@ -183,13 +184,13 @@ function kidState(profileId) {
     return { profile, brushedToday, brushesToday, puzzleLevel, character: c ? { id: c.id, name: c.name, status: c.status } : null };
   }
   const pieces = db.prepare(`
-    SELECT p.id, p.name, p.node_name AS nodeName, u.unlocked_on AS unlockedOn, u.placed_at AS placedAt
+    SELECT p.id, p.name, p.node_name AS nodeName, p.reveal, u.unlocked_on AS unlockedOn, u.placed_at AS placedAt
     FROM pieces p LEFT JOIN unlocks u ON u.piece_id = p.id AND u.profile_id = ?
     WHERE p.character_id = ? ORDER BY p.sort, p.id`).all(profileId, c.id);
   const dances = c.has_rigged
     ? db.prepare("SELECT id, name FROM dances WHERE character_id = ? AND status = 'ready' ORDER BY id").all(c.id)
     : [];
-  const nextPiece = pieces.find((p) => !p.unlockedOn)?.name ?? null;
+  const nextPiece = stepLabel(nextStep(pieces.map((p) => ({ ...p, unlocked: !!p.unlockedOn, reveal: !!p.reveal })), c.kind));
   const settings = getSettings();
   const waitUntil = nextPiece && !profile.isTest ? nextPieceAt(profileId, c, settings) : null;
   return {
@@ -200,7 +201,11 @@ function kidState(profileId) {
     character: {
       id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version,
       hasRigged: !!c.has_rigged,
-      pieces: pieces.map((p) => ({ id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt })),
+      pieces: pieces.map((p) => ({
+        id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt,
+        // Dress up only: revealed (rub away the clouds), not placed.
+        reveal: c.kind === 'dress' && !!p.reveal
+      })),
       dances,
       // Set while a recent piece or brush means the next brush can't earn one
       // yet. unlockedToday is for app builds before 0.1.6.
@@ -256,13 +261,13 @@ app.post('/api/kids/:id/brush', (req, res) => {
     if (!completed) return;
     const c = activeCharacter(profileId);
     if (!c || c.status !== 'ready') return;
-    const next = nextLockedPiece(profileId, c.id);
-    if (!next) return;
+    const step = nextLockedStep(profileId, c);
+    if (!step.length) return;
     // The test kid gets a piece every time, so parents can run through fast.
     if (!isTest && brushProgress(profileId, c, settings).counted < settings.brushesPerPiece) return;
-    db.prepare('INSERT INTO unlocks (profile_id, piece_id, unlocked_on) VALUES (?, ?, ?)').run(profileId, next.id, date);
-    db.prepare('UPDATE brush_sessions SET unlocked_piece_id = ? WHERE id = ?').run(next.id, session.lastInsertRowid);
-    unlockedPiece = { id: next.id, name: next.name };
+    unlockStep(profileId, step, date);
+    db.prepare('UPDATE brush_sessions SET unlocked_piece_id = ? WHERE id = ?').run(step[0].id, session.lastInsertRowid);
+    unlockedPiece = { id: step[0].id, name: stepLabel(step), reveal: c.kind === 'dress' && !!step[0].reveal };
   })();
 
   res.json({ completed, unlockedPiece, state: kidState(profileId) });
@@ -305,11 +310,17 @@ function nextPieceAt(profileId, c, settings) {
   return at > Date.now() ? new Date(at).toISOString() : null;
 }
 
-function nextLockedPiece(profileId, characterId) {
-  return db.prepare(`
-    SELECT p.* FROM pieces p
-    WHERE p.character_id = ? AND NOT EXISTS (SELECT 1 FROM unlocks u WHERE u.piece_id = p.id AND u.profile_id = ?)
-    ORDER BY p.sort, p.id LIMIT 1`).get(characterId, profileId);
+// The pieces the next counted brush unlocks: one piece, or in dress up a run
+// of body parts to reveal together (steps.js).
+function nextLockedStep(profileId, c) {
+  const pieces = db.prepare(`
+    SELECT p.*, EXISTS (SELECT 1 FROM unlocks u WHERE u.piece_id = p.id AND u.profile_id = ?) AS unlocked
+    FROM pieces p WHERE p.character_id = ? ORDER BY p.sort, p.id`).all(profileId, c.id);
+  return nextStep(pieces.map((p) => ({ ...p, unlocked: !!p.unlocked, reveal: !!p.reveal })), c.kind);
+}
+
+function unlockStep(profileId, step, date) {
+  for (const p of step) db.prepare('INSERT INTO unlocks (profile_id, piece_id, unlocked_on) VALUES (?, ?, ?)').run(profileId, p.id, date);
 }
 
 // A grown-up gives the next piece by hand: the kid brushed, but the camera
@@ -319,17 +330,17 @@ app.post('/api/parent/profiles/:id/give-piece', requireAdult, (req, res) => {
   const profileId = profileRow(Number(req.params.id)).id;
   const c = activeCharacter(profileId);
   if (!c || c.status !== 'ready') throw httpError(400, "They aren't building anything yet");
-  const next = nextLockedPiece(profileId, c.id);
-  if (!next) throw httpError(400, `They already have every piece of ${c.name}`);
+  const step = nextLockedStep(profileId, c);
+  if (!step.length) throw httpError(400, `They already have every piece of ${c.name}`);
   const settings = getSettings();
   const date = today();
   db.transaction(() => {
     db.prepare(`
       INSERT INTO brush_sessions (profile_id, local_date, seconds_brushed, seconds_paused, completed, manual, unlocked_piece_id)
-      VALUES (?, ?, ?, 0, 1, 1, ?)`).run(profileId, date, settings.mainSeconds + settings.frontSeconds, next.id);
-    db.prepare('INSERT INTO unlocks (profile_id, piece_id, unlocked_on) VALUES (?, ?, ?)').run(profileId, next.id, date);
+      VALUES (?, ?, ?, 0, 1, 1, ?)`).run(profileId, date, settings.mainSeconds + settings.frontSeconds, step[0].id);
+    unlockStep(profileId, step, date);
   })();
-  res.json({ piece: { id: next.id, name: next.name }, character: c.name });
+  res.json({ piece: { id: step[0].id, name: stepLabel(step) }, character: c.name });
 });
 
 app.post('/api/kids/:id/place', (req, res) => {
@@ -646,7 +657,8 @@ function characterDetail(c) {
   const ex = c.exercise ? safeJson(c.exercise) : null;
   return {
     id: c.id, name: c.name, kind: c.kind, status: c.status, error: c.error, hasRigged: !!c.has_rigged, version: c.version,
-    pieces: db.prepare('SELECT id, name, node_name AS nodeName FROM pieces WHERE character_id = ? ORDER BY sort, id').all(c.id),
+    pieces: db.prepare('SELECT id, name, node_name AS nodeName, reveal FROM pieces WHERE character_id = ? ORDER BY sort, id').all(c.id)
+      .map((p) => ({ ...p, reveal: !!p.reveal })),
     dances: db.prepare('SELECT id, name, status, error FROM dances WHERE character_id = ? ORDER BY id').all(c.id),
     partner: {
       forAll: !!c.partner_for_all,
@@ -704,10 +716,12 @@ parent.put('/characters/:id', (req, res) => {
     const kind = c.kind !== 'partner' && (b.kind === 'dress' || b.kind === 'build') ? b.kind : c.kind;
     db.prepare('UPDATE characters SET name = ?, kind = ? WHERE id = ?').run(
       String(b.name ?? c.name).trim().slice(0, 60) || c.name, kind, c.id);
-    // pieces: full list in the new unlock order, with names
+    // pieces: full list in the new unlock order, with names and which are
+    // body parts (dress up reveals those instead of placing them)
     (b.pieces || []).forEach((p, i) => {
-      db.prepare('UPDATE pieces SET name = ?, sort = ? WHERE id = ? AND character_id = ?')
-        .run(String(p.name || '').trim().slice(0, 60) || 'Piece', i, Number(p.id), c.id);
+      const named = pieceName(String(p.name || '').trim().slice(0, 60) || 'Piece');
+      db.prepare('UPDATE pieces SET name = ?, sort = ?, reveal = ? WHERE id = ? AND character_id = ?')
+        .run(named.name, i, named.reveal || p.reveal ? 1 : 0, Number(p.id), c.id);
     });
   })();
   res.json(characterDetail(characterRow(c.id)));
@@ -985,9 +999,10 @@ function addPieces(characterId, files) {
   const srcDir = path.join(characterDir(characterId), 'src', 'pieces');
   fs.mkdirSync(srcDir, { recursive: true });
   let sort = db.prepare('SELECT COALESCE(MAX(sort), -1) AS s FROM pieces WHERE character_id = ?').get(characterId).s;
-  const addRow = (name) => {
-    const id = db.prepare('INSERT INTO pieces (character_id, name, sort, node_name) VALUES (?, ?, ?, ?)')
-      .run(characterId, name, ++sort, 'pending').lastInsertRowid;
+  const addRow = (raw) => {
+    const { name, reveal } = pieceName(raw);
+    const id = db.prepare('INSERT INTO pieces (character_id, name, sort, node_name, reveal) VALUES (?, ?, ?, ?, ?)')
+      .run(characterId, name, ++sort, 'pending', reveal ? 1 : 0).lastInsertRowid;
     db.prepare('UPDATE pieces SET node_name = ? WHERE id = ?').run(`piece_${id}`, id);
     return id;
   };

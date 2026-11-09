@@ -134,17 +134,38 @@ Big files are fine. The server shrinks them (merges the pieces into one
 file, WebP textures, simplified meshes, meshopt compression) and keeps the
 originals so it can rebuild them later.
 
-Kind **Build** is for things that snap together (a robot). **Dress up** is
-for outfit pieces on an outline: each piece should include the body part
-under it (shoes bring the feet, pants bring the legs). **Exercise partner
-only** has nothing to build: just the exercise model.
+Kind **Build** is for things that snap together (a robot): every piece is
+dragged on, one piece per brush. **Exercise partner only** has nothing to
+build: just the exercise model.
+
+**Dress up** is for people. Clothes are dragged on like pieces, but body
+parts are *uncovered*: once the clothes before them are on, the camera
+zooms in on each body part in turn, it shows up under sparkly clouds in its
+exact shape, and the kid rubs the clouds away with a finger (it takes a few
+swipes). Body parts next to each other in the unlock order come with the same
+brush, so for example:
+
+| Brush | Unlocks |
+|---|---|
+| 1 | Shorts |
+| 2 | Stomach, legs (uncovered) |
+| 3, 4 | Left boot, right boot |
+| 5 | Top |
+| 6 | Hands, head (uncovered) |
+| 7 | Braid |
+
+Name a body part with `(Body)` in Blender (`Stomach (Body)`, `Left Leg [body
+part]`) and it's marked as one for you (the tag is left out of its name), or
+tick **Body part** next to it on the character's page. Set the order there
+too: each piece shows which brush unlocks it.
 
 ### Each character's page
 
 Characters shows every character as a tile; tapping one opens its page:
 
 - **Details**: name, kind, whether every kid can pick it as a partner.
-- **Build**: pieces in unlock order, the dancing model and dances.
+- **Build**: pieces in unlock order (with the brush that unlocks each, and
+  the Body part ticks for dress up), the dancing model and dances.
 - **Exercise model**: one .glb with the model, any props and every exercise
   animation (Blender: export with all actions), with a viewer to scrub
   through each animation.

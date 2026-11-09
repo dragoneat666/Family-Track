@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
 import { starfishScript, starterText, linesUsed } from './exerciseScript.js';
+import { pieceName } from './steps.js';
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const raw = new DatabaseSync(path.join(DATA_DIR, 'family-track.db'));
@@ -222,7 +223,16 @@ const MIGRATIONS = [
   },
   // A kid's own brushing setting from a tracking check, per place they brush:
   // JSON { standing|sitting: { threshold, d, at } } (d = face size then).
-  `ALTER TABLE profiles ADD COLUMN brush_tuning TEXT;`
+  `ALTER TABLE profiles ADD COLUMN brush_tuning TEXT;`,
+  // Dress up: body parts aren't placed, they're revealed (the kid rubs away
+  // sparkly clouds). Marked by "(Body)" in the name from Blender, or by hand.
+  () => {
+    db.exec('ALTER TABLE pieces ADD COLUMN reveal INTEGER NOT NULL DEFAULT 0;');
+    for (const p of db.prepare('SELECT id, name FROM pieces').all()) {
+      const { name, reveal } = pieceName(p.name);
+      if (reveal) db.prepare('UPDATE pieces SET name = ?, reveal = 1 WHERE id = ?').run(name, p.id);
+    }
+  }
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

@@ -16,6 +16,7 @@ export default function Build({ profile, testCharacter, level: testLevel = 'easy
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dancing, setDancing] = useState(null);
+  const [revealing, setRevealing] = useState(null); // dress up: the body part under the clouds
 
   useEffect(() => {
     let scene;
@@ -39,6 +40,7 @@ export default function Build({ profile, testCharacter, level: testLevel = 'easy
           level: lvl,
           onPlace: (pieceId) => place(pieceId),
           onTrayChange: setTray,
+          onReveal: (piece) => setRevealing(piece ? { id: piece.id, name: piece.name } : null),
           onParkedChange: (n) => {
             setParked(n);
             if (n) say(null);
@@ -125,14 +127,19 @@ export default function Build({ profile, testCharacter, level: testLevel = 'easy
   const nextName = character?.pieces.find((p) => p.id === tray[0])?.name;
   const canDance = complete && character.hasRigged && character.dances?.length > 0;
 
-  const firstId = character?.pieces[0]?.id;
+  // Dress up body parts aren't dragged: they're uncovered (see buildScene.js).
+  const isReveal = (p) => character?.kind === 'dress' && !!p.reveal;
+  const firstId = character?.pieces.find((p) => !isReveal(p))?.id;
   const easyNext = level === 'easy' || tray[0] === firstId;
-  const turnable = level === 'hard' && !complete && !dancing && (parked > 0 || tray.some((id) => id !== firstId));
+  const turnable = level === 'hard' && !complete && !dancing && !revealing && (parked > 0 || tray.some((id) => id !== firstId));
+  const revealWaiting = !tray.length && !parked && character?.pieces.some((p) => isReveal(p) && p.unlocked && !p.placed);
 
   let hint = '';
   if (character && !loading) {
     if (complete) hint = `🎉 ${character.name} is finished!`;
+    else if (revealing) hint = `✨ Rub the sparkly clouds away to find ${character.name}’s ${revealing.name.toLowerCase()}!`;
     else if (said) hint = said.text;
+    else if (revealWaiting) hint = '✨ Something is hiding under sparkly clouds…';
     else if (parked) hint = level === 'hard' ? 'Turn it, move it, then tap Check!' : 'Tap Check when you think it’s right!';
     else if (tray.length && easyNext) hint = `Drag the ${nextName} onto ${character.name}!`;
     else if (tray.length) hint = `Where does the ${nextName} go?${level === 'hard' ? ' Turn it to fit!' : ''}`;

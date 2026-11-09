@@ -382,7 +382,9 @@ input.line-text { font: inherit; padding: 4px 8px; }
 .swatches { display: flex; gap: 6px; }
 .swatch { width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; }
 .swatch.on { border-color: var(--text); }
-.piece-list { margin: 0; padding-left: 24px; display: flex; flex-direction: column; gap: 6px; }
+.piece-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.piece-list .brush-no { width: 2.4em; flex: none; color: var(--muted); font-weight: 700; font-size: 0.9rem; text-align: right; }
+.piece-list label.check { margin: 0; white-space: nowrap; }
 .status { font-weight: 700; font-size: 0.9rem; color: var(--muted); }
 .status.processing { color: var(--warn); }
 .status.error { color: var(--bad); }

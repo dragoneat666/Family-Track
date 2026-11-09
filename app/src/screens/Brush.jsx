@@ -278,8 +278,10 @@ function BrushResult({ result, testMode, onExit }) {
         <h2>Sparkly teeth!</h2>
         {result.unlockedPiece ? (
           <>
-            <p>You unlocked a new piece: <b>{result.unlockedPiece.name}</b></p>
-            <button className="btn primary big" onClick={() => onExit(true)}>Build it now!</button>
+            {result.unlockedPiece.reveal
+              ? <p>✨ Something is hiding under sparkly clouds: <b>{result.unlockedPiece.name}</b>!</p>
+              : <p>You unlocked a new piece: <b>{result.unlockedPiece.name}</b></p>}
+            <button className="btn primary big" onClick={() => onExit(true)}>{result.unlockedPiece.reveal ? 'Find it now!' : 'Build it now!'}</button>
             <button className="btn link" onClick={() => onExit(false)}>Later</button>
           </>
         ) : (

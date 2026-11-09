@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api.js';
 import { DanceViewer } from '../../three/danceViewer.js';
 import { PartnerScene } from '../../three/partnerScene.js';
-import { glbOnly, danceFiles, KIND_EMOJI, clock } from './characterFiles.js';
+import { glbOnly, danceFiles, brushNumbers, KIND_EMOJI, clock } from './characterFiles.js';
 import VoiceEditor from './VoiceEditor.jsx';
 import ExerciseEditor from './ExerciseEditor.jsx';
 
@@ -75,7 +75,7 @@ function Details({ character, call, reload, onDeleted }) {
         <label>Kind
           <select value={kind} onChange={(e) => setKind(e.target.value)}>
             <option value="build">Build (snap parts together)</option>
-            <option value="dress">Dress up (outfit pieces)</option>
+            <option value="dress">Dress up (put on clothes, uncover body parts)</option>
           </select>
         </label>
       )}
@@ -139,21 +139,38 @@ function Build({ character, call, upload, setError, reload }) {
 
   const changed = JSON.stringify(pieces) !== JSON.stringify(character.pieces);
   const canWatch = character.hasRigged && character.dances.some((d) => d.status === 'ready');
+  const dress = character.kind === 'dress';
+  const brushes = brushNumbers(pieces, dress);
+  const edit = (p, change) => setPieces(pieces.map((x) => (x.id === p.id ? { ...x, ...change } : x)));
 
   return (
     <div className="stack">
       <div className="card stack">
         <h4>Pieces, in unlock order <span className={`status ${character.status}`}>{character.status === 'processing' ? 'getting ready…' : ''}</span></h4>
-        <ol className="piece-list">
+        {dress && (
+          <p className="muted small">
+            Dress up: clothes get dragged on. Body parts are uncovered instead: the screen zooms in and the kid
+            rubs sparkly clouds off them. Body parts next to each other in the list come with the same brush.
+            Name a part with "(Body)" in Blender (like "Legs (Body)") and it's ticked for you.
+          </p>
+        )}
+        <ul className="piece-list">
           {pieces.map((p, i) => (
             <li key={p.id} className="row">
-              <input value={p.name} onChange={(e) => setPieces(pieces.map((x) => (x.id === p.id ? { ...x, name: e.target.value } : x)))} />
+              <span className="brush-no" title="Unlocked by this brush">{brushes[i] !== brushes[i - 1] ? `#${brushes[i]}` : ''}</span>
+              <input value={p.name} onChange={(e) => edit(p, { name: e.target.value })} />
+              {dress && (
+                <label className="inline check small" title="Uncovered from under sparkly clouds instead of dragged on">
+                  <input type="checkbox" checked={!!p.reveal} onChange={(e) => edit(p, { reveal: e.target.checked })} />
+                  Body part
+                </label>
+              )}
               <button className="btn small" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
               <button className="btn small" onClick={() => move(i, 1)} disabled={i === pieces.length - 1}>↓</button>
               <button className="btn small danger" onClick={() => removePiece(p)}>✕</button>
             </li>
           ))}
-        </ol>
+        </ul>
         <div className="row"><button className="btn primary" onClick={save} disabled={!changed}>Save names &amp; order</button></div>
         <h4>Add more pieces</h4>
         <div className="row">

@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { loadDance } from './dance.js';
+import { CloudCover } from './cloudCover.js';
 
 // The build board. Every piece in build.glb already sits at its "home" (the
 // files were exported from the whole character), so:
@@ -18,6 +19,15 @@ import { loadDance } from './dance.js';
 //  - hard: medium, plus pieces arrive turned and the kid turns them back with
 //    the arrows (quarter turns in the screen's plane).
 // The character's first piece always works like easy, so they know where to start.
+//
+// Dress up: body parts (piece.reveal) are never in the tray. Once the clothes
+// before them are placed, the camera zooms onto each body part in turn and it
+// shows up under sparkly clouds the kid rubs away (cloudCover.js). Pieces
+// after a body part wait until it's revealed, so things go in order.
+
+const REVEAL_FILL = 0.72; // how much of the screen a body part fills when zoomed in
+const REVEAL_MIN_VIEW = 0.14; // never zoom closer than this share of the character's height
+const CAMERA_SECONDS = 0.9;
 
 const GHOST_COLORS = { build: 0x8fc8ff, dress: 0xf6c4ff };
 const SNAP_FRACTION = 0.09; // how close (share of the screen) counts as "there"
@@ -27,9 +37,10 @@ const HINT_AFTER = 3; // wrong checks on one piece before its outline flashes
 const HINT_SECONDS = 1.6;
 
 export class BuildScene {
-  constructor(container, { onPlace, onTrayChange, onParkedChange, level = 'easy' } = {}) {
+  constructor(container, { onPlace, onTrayChange, onParkedChange, onReveal, level = 'easy' } = {}) {
     this.container = container;
     this.onPlace = onPlace;
+    this.onReveal = onReveal;
     this.onTrayChange = onTrayChange;
     this.onParkedChange = onParkedChange;
     this.level = level;
@@ -117,11 +128,12 @@ export class BuildScene {
       const piece = {
         id: p.id, name: p.name, pivot, ghost, size: Math.max(size.x, size.y, 1e-6),
         homeLocal: pivot.position.clone(), state: null, wobble: Math.random() * 6,
-        turn: 0, angle: 0, misses: 0, hintUntil: 0, shakeAt: -1
+        turn: 0, angle: 0, misses: 0, hintUntil: 0, shakeAt: -1,
+        reveal: character.kind === 'dress' && !!p.reveal
       };
-      if (!this.firstPiece) this.firstPiece = piece;
+      if (!this.firstPiece && !piece.reveal) this.firstPiece = piece;
       this.pieces.set(p.id, piece);
-      if (this.level === 'hard' && piece !== this.firstPiece && !p.placed) this.scramble(piece, node);
+      if (this.level === 'hard' && piece !== this.firstPiece && !p.placed && !piece.reveal) this.scramble(piece, node);
     }
 
     this.box = new THREE.Box3().setFromObject(this.root);
@@ -131,23 +143,47 @@ export class BuildScene {
 
   // Apply unlocked/placed flags from the server.
   setState(character) {
-    let trayChanged = false;
     for (const p of character.pieces) {
       const piece = this.pieces.get(p.id);
       if (!piece) continue;
-      const state = p.placed ? 'placed' : p.unlocked ? 'tray' : 'locked';
-      if (piece.state === state || (piece.state === 'parked' && state === 'tray')) continue;
+      piece.unlocked = !!p.unlocked;
+      if (p.placed) piece.serverPlaced = true;
+    }
+    this.refreshStates();
+  }
+
+  // Works out each piece's state, in unlock order:
+  //   locked     not earned yet
+  //   tray       earned, waiting to be dragged on (or parked: dropped, not checked)
+  //   reveal     an earned body part waiting for its clouds (dress up)
+  //   revealing  the body part being rubbed clean right now
+  //   waiting    earned, but behind a body part that isn't revealed yet
+  //   placed     done
+  refreshStates() {
+    let trayChanged = false;
+    let behindReveal = false;
+    for (const piece of this.pieces.values()) {
+      let state;
+      if (piece.state === 'placed' || piece.serverPlaced) state = 'placed';
+      else if (!piece.unlocked) state = 'locked';
+      else if (piece.reveal) {
+        state = piece.state === 'revealing' ? 'revealing' : 'reveal';
+        behindReveal = true;
+      } else if (behindReveal) state = 'waiting';
+      else state = piece.state === 'parked' ? 'parked' : 'tray';
+      if (state === piece.state) continue;
       if (piece.state === 'tray' || state === 'tray') trayChanged = true;
       piece.state = state;
-      piece.pivot.visible = state !== 'locked';
+      piece.pivot.visible = ['tray', 'parked', 'placed', 'revealing'].includes(state);
       if (state === 'placed') this.sendHome(piece, false);
     }
     this.updateGhosts();
-    if (trayChanged) {
+    if (trayChanged && !this.revealing) {
       this.root.rotation.y = 0;
       this.layoutTray(false);
       this.onTrayChange?.(this.trayPieces().map((p) => p.id));
     }
+    this.maybeReveal();
   }
 
   // All unlocked-but-unplaced pieces, in unlock order.
@@ -173,7 +209,8 @@ export class BuildScene {
   updateGhosts(now = this.clock.elapsedTime) {
     for (const piece of this.pieces.values()) {
       const hint = piece.hintUntil > now;
-      piece.ghost.visible = piece.state !== 'placed' && (this.easyFor(piece) || hint);
+      // Zoomed in on a body part: no outlines in the way of the clouds.
+      piece.ghost.visible = !this.revealing && piece.state !== 'placed' && (this.easyFor(piece) || hint);
       if (piece.hinting !== hint) {
         piece.hinting = hint;
         this.highlight(piece, hint);
@@ -247,6 +284,174 @@ export class BuildScene {
     this.layoutTray(true); // the next waiting piece slides in
     this.onPlace?.(piece.id);
     this.onTrayChange?.(this.trayPieces().map((p) => p.id));
+    this.maybeReveal();
+  }
+
+  // ---------- Dress up: revealing body parts ----------
+
+  // The body part that's next in line: the first earned piece not placed yet,
+  // if that's a body part (clothes before it go on first).
+  nextReveal() {
+    for (const p of this.pieces.values()) {
+      if (p.state === 'placed' || p.state === 'locked') continue;
+      return p.state === 'reveal' ? p : null;
+    }
+    return null;
+  }
+
+  // Start on the next body part once nothing is left to place before it.
+  maybeReveal() {
+    if (this.revealing || this.revealTimer || this.dancer || !this.box) return;
+    if (this.trayPieces().length || this.parkedPieces().length) return;
+    const next = this.nextReveal();
+    if (!next) return;
+    this.revealTimer = setTimeout(() => {
+      this.revealTimer = null;
+      if (!this.destroyed && next.state === 'reveal') this.startReveal(next);
+    }, 700);
+  }
+
+  startReveal(piece) {
+    this.revealing = { piece };
+    piece.state = 'revealing';
+    piece.pivot.visible = false;
+    this.sendHome(piece, false);
+    this.root.rotation.y = 0;
+    this.spinning = null;
+    this.updateGhosts();
+    this.onReveal?.(piece);
+    this.tweenCamera(this.revealView(piece), () => {
+      if (this.revealing?.piece !== piece) return;
+      this.coverUp(piece);
+    });
+  }
+
+  // Covers the body part (now zoomed in) with clouds in its exact shape.
+  coverUp(piece) {
+    this.cover?.destroy();
+    piece.pivot.visible = true;
+    const { mask, w, h } = this.maskOf(piece);
+    // Hidden behind clothes from the front? Nothing to rub, so it just appears.
+    if (mask.reduce((n, v) => n + v, 0) < 6) {
+      this.finishReveal(piece);
+      return;
+    }
+    this.cover = new CloudCover(this.container, {
+      mask, maskW: w, maskH: h,
+      onDone: () => this.finishReveal(piece)
+    });
+    this.coverSize = [this.container.clientWidth, this.container.clientHeight];
+  }
+
+  finishReveal(piece) {
+    this.cover?.destroy();
+    this.cover = null;
+    piece.state = 'placed';
+    this.pop(piece);
+    this.onPlace?.(piece.id);
+    const next = this.nextReveal();
+    if (next) {
+      this.startReveal(next);
+      return;
+    }
+    // All revealed: back out to the whole character, then let any waiting pieces in.
+    this.tweenCamera(this.modelView(), () => {
+      this.revealing = null;
+      this.onReveal?.(null);
+      this.frameModel();
+      this.refreshStates();
+    });
+  }
+
+  // Where the camera goes to show one body part big, from the front.
+  revealView(piece) {
+    const box = new THREE.Box3().setFromObject(piece.pivot);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const minView = this.box.getSize(new THREE.Vector3()).y * REVEAL_MIN_VIEW;
+    const dist = Math.max(
+      size.y / (2 * tanHalf * REVEAL_FILL),
+      size.x / (2 * tanHalf * this.camera.aspect * REVEAL_FILL),
+      minView / (2 * tanHalf)
+    ) + size.z / 2;
+    return { position: new THREE.Vector3(center.x, center.y, center.z + dist), target: center, dist };
+  }
+
+  tweenCamera(to, done) {
+    const from = {
+      position: this.camera.position.clone(),
+      target: this.cameraTarget?.clone() ?? to.target.clone(),
+      dist: this.cameraDist ?? to.dist
+    };
+    this.camTween = { from, to, t: 0, done };
+  }
+
+  stepCamera(dt) {
+    const tw = this.camTween;
+    tw.t = Math.min(1, tw.t + dt / CAMERA_SECONDS);
+    const k = tw.t < 0.5 ? 4 * tw.t ** 3 : 1 - (-2 * tw.t + 2) ** 3 / 2;
+    this.applyView({
+      position: tw.from.position.clone().lerp(tw.to.position, k),
+      target: tw.from.target.clone().lerp(tw.to.target, k),
+      dist: tw.from.dist + (tw.to.dist - tw.from.dist) * k
+    });
+    if (tw.t >= 1) {
+      this.camTween = null;
+      tw.done?.();
+    }
+  }
+
+  applyView(v) {
+    this.camera.position.copy(v.position);
+    this.camera.lookAt(v.target);
+    this.cameraTarget = v.target.clone();
+    this.cameraDist = v.dist;
+    this.camera.near = v.dist / 50;
+    this.camera.far = v.dist * 10 + this.box.getSize(new THREE.Vector3()).length() * 4;
+    this.camera.updateProjectionMatrix();
+  }
+
+  // Which screen pixels show this piece (not hidden behind others), at a
+  // quarter of the screen's size: 1 = the piece.
+  maskOf(piece) {
+    const w = Math.max(8, Math.round(this.container.clientWidth / 4));
+    const h = Math.max(8, Math.round(this.container.clientHeight / 4));
+    const r = this.renderer;
+    const rt = new THREE.WebGLRenderTarget(w, h);
+    const black = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const ghosts = this.ghostRoot.visible;
+    const clear = r.getClearColor(new THREE.Color());
+    const clearAlpha = r.getClearAlpha();
+    this.ghostRoot.visible = false;
+    piece.pivot.traverse((o) => o.layers.enable(1));
+    r.setRenderTarget(rt);
+    r.setClearColor(0x000000, 1);
+    r.clear();
+    this.scene.overrideMaterial = black;
+    r.render(this.scene, this.camera); // everything, for what's in front
+    r.autoClear = false;
+    this.camera.layers.set(1);
+    this.scene.overrideMaterial = white;
+    r.render(this.scene, this.camera); // just this piece, where it shows
+    this.camera.layers.set(0);
+    r.autoClear = true;
+    this.scene.overrideMaterial = null;
+    const px = new Uint8Array(w * h * 4);
+    r.readRenderTargetPixels(rt, 0, 0, w, h, px);
+    r.setRenderTarget(null);
+    r.setClearColor(clear, clearAlpha);
+    piece.pivot.traverse((o) => o.layers.disable(1));
+    this.ghostRoot.visible = ghosts;
+    rt.dispose();
+    black.dispose();
+    white.dispose();
+    const mask = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) mask[(h - 1 - y) * w + x] = px[(y * w + x) * 4] > 127 ? 1 : 0;
+    }
+    return { mask, w, h };
   }
 
   // Let go over the tray (or barely moved): it goes back there.
@@ -260,14 +465,31 @@ export class BuildScene {
     const h = this.container.clientHeight || 1;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    if (this.revealing && this.box) {
+      // Stay zoomed on the body part. The clouds only start over (in the new
+      // shape) when the screen really changed size, like turning the tablet.
+      const piece = this.revealing.piece;
+      const view = piece.state === 'revealing' ? this.revealView(piece) : this.modelView();
+      if (this.camTween) this.camTween.to = view;
+      else this.applyView(view);
+      if (this.cover && (this.coverSize[0] !== w || this.coverSize[1] !== h)) this.coverUp(piece);
+      return;
+    }
     if (this.box) this.frameModel();
     this.camera.updateProjectionMatrix();
     this.layoutTray(false);
   }
 
+  frameModel() {
+    const v = this.modelView();
+    this.applyView(v);
+    this.modelCenter = v.center;
+    this.visH = v.visH;
+  }
+
   // Fit the model in part of the screen and leave room for the tray: right
   // side in landscape, bottom in portrait.
-  frameModel() {
+  modelView() {
     const size = this.box.getSize(new THREE.Vector3());
     const center = this.box.getCenter(new THREE.Vector3());
     const landscape = this.camera.aspect >= 1;
@@ -282,12 +504,7 @@ export class BuildScene {
       if (landscape) target.x += visW * 0.18;
       else target.y -= visH * 0.15;
     }
-    this.camera.position.set(target.x, target.y, target.z + dist);
-    this.camera.lookAt(target);
-    this.camera.near = dist / 50;
-    this.camera.far = dist * 10;
-    this.modelCenter = center;
-    this.visH = visH;
+    return { position: new THREE.Vector3(target.x, target.y, target.z + dist), target, dist, center, visH };
   }
 
   layoutTray(animate = true) {
@@ -338,6 +555,7 @@ export class BuildScene {
   }
 
   pointerDown(e) {
+    if (this.revealing) return; // the clouds take the finger
     this.raycaster.setFromCamera(this.pointer(e), this.camera);
     // Nearest piece under the finger (parked pieces can sit in front of others).
     const grabbable = this.dancer ? [] : [...this.parkedPieces(), ...this.shownTray()];
@@ -350,7 +568,7 @@ export class BuildScene {
       const piece = best.piece;
       this.dragging = { piece, pointerId: e.pointerId, from: piece.state, x: e.clientX, y: e.clientY };
       this.selected = piece;
-      this.renderer.domElement.setPointerCapture(e.pointerId);
+      try { this.renderer.domElement.setPointerCapture(e.pointerId); } catch { /* finger already gone */ }
       this.anims = this.anims.filter((a) => a.piece !== piece);
       if (this.easyFor(piece)) this.highlight(piece, true);
       return;
@@ -358,7 +576,7 @@ export class BuildScene {
     // Spin the finished model with a swipe (only when nothing is waiting in the tray).
     if (this.dancer || (!this.trayPieces().length && !this.parkedPieces().length)) {
       this.spinning = { x: e.clientX, rot: this.root.rotation.y, pointerId: e.pointerId };
-      this.renderer.domElement.setPointerCapture(e.pointerId);
+      try { this.renderer.domElement.setPointerCapture(e.pointerId); } catch { /* finger already gone */ }
     }
   }
 
@@ -494,11 +712,15 @@ export class BuildScene {
       piece.pivot.rotation.set(0, sway + shake, piece.angle);
     }
     if (this.ghostRoot) this.updateGhosts(time);
+    if (this.camTween) this.stepCamera(dt);
     this.mixer?.update(dt);
     this.renderer.render(this.scene, this.camera);
   }
 
   destroy() {
+    this.destroyed = true;
+    clearTimeout(this.revealTimer);
+    this.cover?.destroy();
     this.renderer.setAnimationLoop(null);
     this.resizeObserver.disconnect();
     const el = this.renderer.domElement;
