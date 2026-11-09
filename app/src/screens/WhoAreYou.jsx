@@ -55,7 +55,7 @@ export default function WhoAreYou({ current, onSignedIn, onBack }) {
           {adults.map((a) => <AccountTile key={a.id} account={a} onClick={() => pick(a)} />)}
         </div>
       )}
-      {onBack && <button className="btn link" onClick={onBack}>Back</button>}
+      {onBack && <button data-back className="btn link" onClick={onBack}>Back</button>}
     </div>
   );
 }
@@ -109,7 +109,7 @@ function PinStep({ account, mode, onSignedIn, onCancel }) {
             autoComplete="new-password" placeholder="PIN again" />
         )}
         <button className="btn primary" disabled={busy || !pin}>{busy ? 'One sec…' : mode === 'new' ? 'Set PIN and sign in' : 'Sign in'}</button>
-        <button type="button" className="btn link" onClick={onCancel}>Back</button>
+        <button data-back type="button" className="btn link" onClick={onCancel}>Back</button>
         {error && <p className="error">{error}</p>}
       </form>
     </div>

@@ -159,6 +159,19 @@ part]`) and it's marked as one for you (the tag is left out of its name), or
 tick **Body part** next to it on the character's page. Set the order there
 too: each piece shows which brush unlocks it.
 
+### Kids pick their own character
+
+Every Build and Dress up character is open to every kid. The kid home has a
+**Characters** button showing each one as a picture of how far that kid got
+(finished pieces drawn for real, the rest as the faint outline), marked
+Unlocked (finished), the one they're on now, new pieces waiting, or locked.
+Tapping one shows its page: **Set as my character** makes brushing earn its
+pieces, and **Build** / **Dress up** opens it whenever pieces are waiting. A
+finished character's page plays its dances. Pieces on every character are
+kept, so a kid can switch and come back. The wait between pieces is per kid,
+so switching doesn't earn an extra one. Grown-ups can still set a kid's
+character in Accounts.
+
 ### Each character's page
 
 Characters shows every character as a tile; tapping one opens its page:

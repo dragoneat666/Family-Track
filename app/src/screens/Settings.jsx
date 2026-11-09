@@ -60,7 +60,7 @@ export default function Settings({ account, onBack, onSwitch, onChangeServer }) 
     <div className="settings-screen">
       <header className="parent-header">
         <h1>Settings</h1>
-        <button className="btn" onClick={onBack}>Done</button>
+        <button data-back className="btn" onClick={onBack}>Done</button>
       </header>
       <main className="parent-main stack">
         <div className="card row spread">

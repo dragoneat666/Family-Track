@@ -165,7 +165,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
         <div className="card narrow">
           <h2>Uh oh</h2>
           <p>{error}</p>
-          <button className="btn primary" onClick={() => onExit(false)}>Back</button>
+          <button data-back className="btn primary" onClick={() => onExit(false)}>Back</button>
         </div>
       </div>
     );
@@ -218,7 +218,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
         )}
         <div className="brush-buttons">
           {practice && <button className="btn" onClick={skipAhead}>Skip 30 s</button>}
-          <button className="btn link" onClick={stopEarly}>Stop</button>
+          <button data-back className="btn link" onClick={stopEarly}>Stop</button>
         </div>
       </div>
     </div>
@@ -247,7 +247,7 @@ function BrushResult({ result, testMode, onExit }) {
           <div className="result-emoji">{result.completed ? '✅' : '⏹️'}</div>
           <h2>{result.completed ? 'Test brushing finished' : 'Test stopped'}</h2>
           <p>Nothing was saved and no pieces were unlocked.</p>
-          <button className="btn primary" onClick={() => onExit(false)}>Back</button>
+          <button data-back className="btn primary" onClick={() => onExit(false)}>Back</button>
         </div>
       </div>
     );
@@ -259,7 +259,7 @@ function BrushResult({ result, testMode, onExit }) {
           <div className="result-emoji">⭐</div>
           <h2>Great brushing!</h2>
           <p>But I couldn't tell the server: {result.error}</p>
-          <button className="btn primary" onClick={() => onExit(false)}>OK</button>
+          <button data-back className="btn primary" onClick={() => onExit(false)}>OK</button>
         </div>
       </div>
     );
@@ -282,12 +282,12 @@ function BrushResult({ result, testMode, onExit }) {
               ? <p>✨ Something is hiding under sparkly clouds: <b>{result.unlockedPiece.name}</b>!</p>
               : <p>You unlocked a new piece: <b>{result.unlockedPiece.name}</b></p>}
             <button className="btn primary big" onClick={() => onExit(true)}>{result.unlockedPiece.reveal ? 'Find it now!' : 'Build it now!'}</button>
-            <button className="btn link" onClick={() => onExit(false)}>Later</button>
+            <button data-back className="btn link" onClick={() => onExit(false)}>Later</button>
           </>
         ) : (
           <>
             <p>{note}</p>
-            <button className="btn primary big" onClick={() => onExit(false)}>OK</button>
+            <button data-back className="btn primary big" onClick={() => onExit(false)}>OK</button>
           </>
         )}
       </div>

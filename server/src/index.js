@@ -183,6 +183,12 @@ function kidState(profileId) {
   if (!c || c.status !== 'ready') {
     return { profile, brushedToday, brushesToday, puzzleLevel, character: c ? { id: c.id, name: c.name, status: c.status } : null };
   }
+  return { profile, brushedToday, brushesToday, puzzleLevel, character: kidCharacter(profileId, c, profile.isTest) };
+}
+
+// One kid's progress on one (ready) character: their pieces, dances, and
+// when the next piece can come (the wait is per kid, whatever they build).
+function kidCharacter(profileId, c, isTest = !!profileRow(profileId).is_test) {
   const pieces = db.prepare(`
     SELECT p.id, p.name, p.node_name AS nodeName, p.reveal, u.unlocked_on AS unlockedOn, u.placed_at AS placedAt
     FROM pieces p LEFT JOIN unlocks u ON u.piece_id = p.id AND u.profile_id = ?
@@ -192,31 +198,70 @@ function kidState(profileId) {
     : [];
   const nextPiece = stepLabel(nextStep(pieces.map((p) => ({ ...p, unlocked: !!p.unlockedOn, reveal: !!p.reveal })), c.kind));
   const settings = getSettings();
-  const waitUntil = nextPiece && !profile.isTest ? nextPieceAt(profileId, c, settings) : null;
+  const waitUntil = nextPiece && !isTest ? nextPieceAt(profileId, c, settings) : null;
   return {
-    profile,
-    brushedToday,
-    brushesToday,
-    puzzleLevel,
-    character: {
-      id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version,
-      hasRigged: !!c.has_rigged,
-      pieces: pieces.map((p) => ({
-        id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt,
-        // Dress up only: revealed (rub away the clouds), not placed.
-        reveal: c.kind === 'dress' && !!p.reveal
-      })),
-      dances,
-      // Set while a recent piece or brush means the next brush can't earn one
-      // yet. unlockedToday is for app builds before 0.1.6.
-      nextPieceAt: waitUntil,
-      unlockedToday: !!waitUntil,
-      hoursBetween: settings.hoursBetween,
-      nextPiece,
-      complete: pieces.length > 0 && pieces.every((p) => p.placedAt)
-    }
+    id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version,
+    hasRigged: !!c.has_rigged,
+    pieces: pieces.map((p) => ({
+      id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt,
+      // Dress up only: revealed (rub away the clouds), not placed.
+      reveal: c.kind === 'dress' && !!p.reveal
+    })),
+    dances,
+    // Set while a recent piece or brush means the next brush can't earn one
+    // yet. unlockedToday is for app builds before 0.1.6.
+    nextPieceAt: waitUntil,
+    unlockedToday: !!waitUntil,
+    hoursBetween: settings.hoursBetween,
+    nextPiece,
+    complete: pieces.length > 0 && pieces.every((p) => p.placedAt)
   };
 }
+
+// Every character a kid can build or dress up (not exercise-only partners).
+const pickable = (c) => c && c.status === 'ready' && c.kind !== 'partner';
+
+// Make a character the one a kid's brushing earns pieces for. Their pieces on
+// every character are kept, so they can switch back and carry on.
+function setActiveCharacter(profileId, characterId) {
+  const current = activeCharacter(profileId);
+  if (current?.id === characterId) return;
+  db.transaction(() => {
+    db.prepare('UPDATE profile_characters SET active = 0 WHERE profile_id = ?').run(profileId);
+    if (characterId) {
+      db.prepare(`INSERT INTO profile_characters (profile_id, character_id, active) VALUES (?, ?, 1)
+        ON CONFLICT(profile_id, character_id) DO UPDATE SET active = 1, started_at = datetime('now')`).run(profileId, characterId);
+    }
+  })();
+}
+
+// The kid's Characters screen: all of them, with their progress on each.
+app.get('/api/kids/:id/characters', (req, res) => {
+  const profileId = profileRow(Number(req.params.id)).id;
+  const activeId = activeCharacter(profileId)?.id ?? null;
+  const rows = db.prepare('SELECT * FROM characters ORDER BY id').all().filter(pickable);
+  res.json({ activeId, characters: rows.map((c) => ({ ...kidCharacter(profileId, c), active: c.id === activeId })) });
+});
+
+app.get('/api/kids/:id/characters/:characterId', (req, res) => {
+  const profileId = profileRow(Number(req.params.id)).id;
+  const c = characterRow(Number(req.params.characterId));
+  if (!pickable(c)) throw httpError(404, 'That one isn’t ready');
+  const row = profileRow(profileId);
+  res.json({
+    character: { ...kidCharacter(profileId, c), active: activeCharacter(profileId)?.id === c.id },
+    puzzleLevel: PUZZLE_LEVELS.includes(row.puzzle_level) ? row.puzzle_level : 'easy'
+  });
+});
+
+// Kids pick their own character (grown-ups can still set it in Accounts).
+app.put('/api/kids/:id/character', (req, res) => {
+  const profileId = profileRow(Number(req.params.id)).id;
+  const c = characterRow(Number(req.body?.characterId));
+  if (!pickable(c)) throw httpError(400, 'Pick a character that’s ready');
+  setActiveCharacter(profileId, c.id);
+  res.json(kidState(profileId));
+});
 
 app.get('/api/kids/:id/state', (req, res) => res.json(kidState(Number(req.params.id))));
 
@@ -273,19 +318,20 @@ app.post('/api/kids/:id/brush', (req, res) => {
   res.json({ completed, unlockedPiece, state: kidState(profileId) });
 });
 
-// Finished brushes that count toward the next piece of character c: walk the
-// brushes since the last piece (or since the character was started) and count
-// each one that's at least hoursBetween after the previous one that counted.
-// A piece given by a grown-up counts as a brush. Returns the count and when
-// the last counted brush (or piece) happened.
+// Finished brushes that count toward the next piece: walk the brushes since
+// the kid's last piece of any character (or, before their first, since this
+// character was picked) and count each one that's at least hoursBetween after
+// the previous one that counted. Any character: kids pick their own now, and
+// switching mustn't earn a second piece inside the wait. A piece given by a
+// grown-up counts as a brush. Returns the count and when the last counted
+// brush (or piece) happened.
 const sqlTime = (s) => Date.parse(s.replace(' ', 'T') + 'Z');
 function brushProgress(profileId, c, settings) {
   const gapMs = settings.hoursBetween * 3600e3;
   const last = db.prepare(`
     SELECT s.id, s.finished_at FROM brush_sessions s
-    JOIN pieces p ON p.id = s.unlocked_piece_id
     JOIN unlocks u ON u.piece_id = s.unlocked_piece_id AND u.profile_id = s.profile_id
-    WHERE s.profile_id = ? AND p.character_id = ? ORDER BY s.id DESC LIMIT 1`).get(profileId, c.id);
+    WHERE s.profile_id = ? ORDER BY s.id DESC LIMIT 1`).get(profileId);
   const sessions = last
     ? db.prepare('SELECT finished_at FROM brush_sessions WHERE profile_id = ? AND completed = 1 AND id > ? ORDER BY id').all(profileId, last.id)
     : db.prepare('SELECT finished_at FROM brush_sessions WHERE profile_id = ? AND completed = 1 AND finished_at >= ? ORDER BY id').all(profileId, c.started_at);
@@ -348,7 +394,10 @@ app.post('/api/kids/:id/place', (req, res) => {
   const r = db.prepare("UPDATE unlocks SET placed_at = COALESCE(placed_at, datetime('now')) WHERE profile_id = ? AND piece_id = ?")
     .run(profileId, Number(req.body.pieceId));
   if (!r.changes) throw httpError(400, 'That piece is not unlocked yet');
-  res.json(kidState(profileId));
+  // character = the one this piece belongs to (the kid may be finishing one
+  // that isn't their active character).
+  const c = db.prepare('SELECT c.* FROM pieces p JOIN characters c ON c.id = p.character_id WHERE p.id = ?').get(Number(req.body.pieceId));
+  res.json({ ...kidState(profileId), character: kidCharacter(profileId, c) });
 });
 
 // ---------- 3D files ----------
@@ -631,13 +680,7 @@ parent.put('/profiles/:id/character', (req, res) => {
   const profileId = profileRow(Number(req.params.id)).id;
   const characterId = req.body.characterId ? Number(req.body.characterId) : null;
   if (characterId && characterRow(characterId).kind === 'partner') throw httpError(400, "That one is only an exercise partner; there's nothing to build");
-  db.transaction(() => {
-    db.prepare('UPDATE profile_characters SET active = 0 WHERE profile_id = ?').run(profileId);
-    if (characterId) {
-      db.prepare(`INSERT INTO profile_characters (profile_id, character_id, active) VALUES (?, ?, 1)
-        ON CONFLICT(profile_id, character_id) DO UPDATE SET active = 1`).run(profileId, characterId);
-    }
-  })();
+  setActiveCharacter(profileId, characterId);
   res.json({ ok: true });
 });
 

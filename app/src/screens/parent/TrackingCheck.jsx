@@ -51,7 +51,7 @@ export default function TrackingCheck({ onExit }) {
         {kidId && <p className="muted small">Afterwards you can save a setting just for them when brushing {SPOTS[spot].short}.</p>}
         <div className="row wrap">
           <button className="btn primary" onClick={() => setWho({ kidId: Number(kidId) || null, spot })}>Start</button>
-          <button className="btn link" onClick={onExit}>Cancel</button>
+          <button data-back className="btn link" onClick={onExit}>Cancel</button>
         </div>
       </div>
     </div>
@@ -169,7 +169,7 @@ function Check({ kid, spot, onExit }) {
         <div className="card narrow">
           <h2>Can't run the check</h2>
           <p>{error}</p>
-          <button className="btn primary" onClick={onExit}>Back</button>
+          <button data-back className="btn primary" onClick={onExit}>Back</button>
         </div>
       </div>
     );
@@ -184,7 +184,7 @@ function Check({ kid, spot, onExit }) {
           <ResultTable rows={summary.map((r) => ({ key: r.key, want: r.want, counted: r.counted, faceSeen: r.faceSeen }))} />
           {kid && <OwnSetting kid={kid} spot={spot} samples={samplesRef.current} />}
           <p className="muted small">{sent}</p>
-          <button className="btn primary" onClick={onExit}>Done</button>
+          <button data-back className="btn primary" onClick={onExit}>Done</button>
         </div>
       </div>
     );
@@ -220,7 +220,7 @@ function Check({ kid, spot, onExit }) {
             {live.sample?.d ? ` · face ${Math.round(live.sample.d)}` : ''}
           </div>
         )}
-        <button className="btn link" onClick={onExit}>Cancel</button>
+        <button data-back className="btn link" onClick={onExit}>Cancel</button>
       </div>
     </div>
   );

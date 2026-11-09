@@ -62,7 +62,7 @@ export default function Metronome({ profile, onExit }) {
   return (
     <div className="exercise-screen">
       <header className="build-header">
-        <button className="btn" onClick={onExit}>← Back</button>
+        <button data-back className="btn" onClick={onExit}>← Back</button>
         <div className="build-title">🥁 Metronome</div>
       </header>
 

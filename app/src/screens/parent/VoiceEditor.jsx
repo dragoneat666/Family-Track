@@ -273,7 +273,7 @@ export function RecordSession({ voice, lines, onExit }) {
   return (
     <div className="exercise-screen record-screen">
       <header className="build-header">
-        <button className="btn" onClick={exit} disabled={saving > 0}>← Back</button>
+        <button data-back className="btn" onClick={exit} disabled={saving > 0}>← Back</button>
         <div className="build-title">🎙️ {voice.name}</div>
       </header>
       <div className="record-body">

@@ -3,7 +3,7 @@ import { api, canUseCamera } from '../api.js';
 import { preloadTracker } from '../brush/tracker.js';
 import UpdateBanner from '../UpdateBanner.jsx';
 
-export default function KidHome({ profile, onBrush, onBuild, onExercises, onSettings }) {
+export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExercises, onSettings }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
 
@@ -40,16 +40,28 @@ export default function KidHome({ profile, onBrush, onBuild, onExercises, onSett
           {ready ? (
             <button className="big-action build" onClick={onBuild}>
               <span className="big-emoji">{c.kind === 'dress' ? '👗' : '🤖'}</span>
-              <span className="big-label">{c.complete ? `Play with ${c.name}` : `Build ${c.name}`}</span>
+              <span className="big-label">{c.complete ? `Play with ${c.name}` : `${c.kind === 'dress' ? 'Dress up' : 'Build'} ${c.name}`}</span>
               <span className="progress"><i style={{ width: `${(placed / Math.max(1, c.pieces.length)) * 100}%` }} /></span>
               <span className="small">{placed} of {c.pieces.length} pieces</span>
               {waiting > 0 && <span className="badge new">{waiting === 1 ? 'New piece!' : `${waiting} new pieces!`}</span>}
             </button>
-          ) : (
+          ) : c?.status === 'processing' ? (
             <div className="big-action disabled">
               <span className="big-emoji">🧩</span>
-              <span className="big-label">{c?.status === 'processing' ? 'Getting your build ready…' : 'Ask a grown-up to pick something to build'}</span>
+              <span className="big-label">Getting your build ready…</span>
             </div>
+          ) : onCharacters && (
+            <button className="big-action build" onClick={onCharacters}>
+              <span className="big-emoji">🧩</span>
+              <span className="big-label">Pick a character to unlock!</span>
+            </button>
+          )}
+
+          {onCharacters && (
+            <button className="big-action characters" onClick={onCharacters}>
+              <span className="big-emoji">⭐</span>
+              <span className="big-label">Characters</span>
+            </button>
           )}
 
           {onExercises && (

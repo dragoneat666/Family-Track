@@ -3,9 +3,8 @@ import { api } from '../../api.js';
 import { useParentCall } from './useParentCall.js';
 import Brush from '../Brush.jsx';
 import Build from '../Build.jsx';
-import KidHome from '../KidHome.jsx';
+import KidArea from '../KidArea.jsx';
 import TrackingCheck from './TrackingCheck.jsx';
-import Exercises from '../../exercises/Exercises.jsx';
 import { PUZZLE_LEVELS } from '../PuzzleLevel.jsx';
 
 // Try brushing and building without touching any kid's progress.
@@ -128,19 +127,13 @@ function LevelSelect({ value, onChange }) {
   );
 }
 
-// The kid screens (home -> brush -> build) for the test kid, inside the parent area.
+// The kid screens for the test kid, inside the parent area.
 function KidFlow({ profile, onExit }) {
-  const [screen, setScreen] = useState('home');
-  if (screen === 'brush') return <Brush profile={profile} onExit={(goBuild) => setScreen(goBuild ? 'build' : 'home')} />;
-  if (screen === 'build') return <Build profile={profile} onExit={() => setScreen('home')} />;
-  if (screen === 'exercises') return <Exercises profile={profile} onExit={() => setScreen('home')} />;
-  return (
-    <>
-      <div className="test-strip">
-        Test kid — a new piece after every brush
-        <button className="btn small" onClick={onExit}>Back to parents</button>
-      </div>
-      <KidHome profile={profile} onBrush={() => setScreen('brush')} onBuild={() => setScreen('build')} onExercises={() => setScreen('exercises')} onSettings={onExit} />
-    </>
+  const strip = (
+    <div className="test-strip">
+      Test kid — a new piece after every brush
+      <button data-back className="btn small" onClick={onExit}>Back to parents</button>
+    </div>
   );
+  return <KidArea profile={profile} onSettings={onExit} top={strip} />;
 }

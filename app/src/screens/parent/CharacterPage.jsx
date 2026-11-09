@@ -22,7 +22,7 @@ export default function CharacterPage({ character, all, call, upload, setError, 
   return (
     <div className="stack character-page">
       <div className="row wrap">
-        <button className="btn" onClick={onBack}>← All characters</button>
+        <button data-back className="btn" onClick={onBack}>← All characters</button>
         <h2 className="grow">{KIND_EMOJI[character.kind] ?? '🤖'} {character.name}</h2>
       </div>
       <nav className="tabs sub">

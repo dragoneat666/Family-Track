@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { BuildScene } from '../three/buildScene.js';
 
-// Either a kid's real build (profile) or a parent test run (testCharacter:
+// Either a kid's real build (profile: their active character, or
+// characterId from the Characters screen) or a parent test run (testCharacter:
 // every piece unlocked, nothing saved; level picks easy/medium/hard).
-export default function Build({ profile, testCharacter, level: testLevel = 'easy', onExit }) {
+export default function Build({ profile, characterId, testCharacter, level: testLevel = 'easy', onExit }) {
   const holderRef = useRef(null);
   const sceneRef = useRef(null);
   const sayTimer = useRef(null);
@@ -27,6 +28,11 @@ export default function Build({ profile, testCharacter, level: testLevel = 'easy
         let lvl = testLevel;
         if (testCharacter) {
           c = { ...testCharacter, pieces: testCharacter.pieces.map((p) => ({ ...p, unlocked: true, placed: false })) };
+        } else if (characterId) {
+          // Any character the kid picked on the Characters screen.
+          const r = await api.get(`/api/kids/${profile.id}/characters/${characterId}`);
+          c = r.character;
+          lvl = r.puzzleLevel || 'easy';
         } else {
           const state = await api.get(`/api/kids/${profile.id}/state`);
           c = state.character;
@@ -149,7 +155,7 @@ export default function Build({ profile, testCharacter, level: testLevel = 'easy
   return (
     <div className="build-screen">
       <header className="build-header">
-        <button className="btn" onClick={onExit}>← Back</button>
+        <button data-back className="btn" onClick={onExit}>← Back</button>
         <div className="build-title">
           {character?.name}
           {character && <span className="small"> · {placed} / {character.pieces.length}</span>}

@@ -319,7 +319,7 @@ export default function ExerciseEditor({ character, exercise, call, reload, onCl
           onExit={() => { setRecording(null); reload(); }} />
       )}
       <header className="ee-header">
-        <button className="btn" onClick={close}>← Done</button>
+        <button data-back className="btn" onClick={close}>← Done</button>
         <input className="ee-emoji" value={emoji} maxLength={8} onChange={(e) => setEmoji(e.target.value)} aria-label="Icon" />
         <input className="ee-name" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} aria-label="Name" />
         <span className="muted small">{character.name}</span>

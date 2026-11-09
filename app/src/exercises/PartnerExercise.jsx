@@ -106,7 +106,7 @@ export default function PartnerExercise({ kid, exercise, grownUp, onExit }) {
   return (
     <div className="exercise-screen starfish-screen">
       <header className="build-header">
-        <button className="btn" onClick={onExit}>← Back</button>
+        <button data-back className="btn" onClick={onExit}>← Back</button>
         <div className="build-title">{exercise.emoji} {exercise.name}</div>
         <span className="coach-chip">With {partner.name}</span>
       </header>

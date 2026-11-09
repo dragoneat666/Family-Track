@@ -195,7 +195,7 @@ export default function AudioSplitter({ targets, upload, onSaved, onClose, note,
     <div className="splitter stack">
       <div className="row wrap">
         <b>✂️ Split one long recording</b>
-        <button className="btn small" onClick={onClose} disabled={saving}>Close</button>
+        <button data-back className="btn small" onClick={onClose} disabled={saving}>Close</button>
       </div>
       <p className="muted small">Make one file with the lines read in the order below, with a short pause between them
         (about 2 seconds is best). The app finds each line by the quiet around it and matches them up in order.
