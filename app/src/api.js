@@ -19,28 +19,38 @@ export const api = {
   setServerUrl(url) { store.set('ft.server', url.replace(/\/+$/, '')); },
   get token() { return store.get('ft.token'); },
   setToken(t) { store.set('ft.token', t); },
+  // Who was signed in here last time, for opening the app with no server in reach.
+  get knownAccount() { try { return JSON.parse(store.get('ft.account')); } catch { return null; } },
+  rememberAccount(a) { store.set('ft.account', a ? JSON.stringify(a) : null); },
 
   url(path) { return this.serverUrl + path; },
   authHeaders() {
     return this.token ? { Authorization: `Bearer ${this.token}` } : {};
   },
 
-  async request(method, path, body) {
+  // Gives up after `timeout` ms: with NetBird off, a request to the server
+  // can otherwise hang for minutes before the phone admits it.
+  async request(method, path, body, { timeout = 20000 } = {}) {
     let res;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
     try {
       res = await fetch(this.url(path), {
         method,
+        signal: ctrl.signal,
         headers: { ...this.authHeaders(), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
         body: body !== undefined ? JSON.stringify(body) : undefined
       });
     } catch {
       throw new ApiError("Can't reach the server. Is NetBird connected?", 0);
+    } finally {
+      clearTimeout(timer);
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new ApiError(data.error || `Server error ${res.status}`, res.status, data);
     return data;
   },
-  get(path) { return this.request('GET', path); },
+  get(path, options) { return this.request('GET', path, undefined, options); },
   post(path, body = {}) { return this.request('POST', path, body); },
   put(path, body = {}) { return this.request('PUT', path, body); },
   del(path) { return this.request('DELETE', path); },

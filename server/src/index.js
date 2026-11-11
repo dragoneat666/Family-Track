@@ -17,6 +17,7 @@ import {
   glbObjects, glbAnimations, splitPieces, cleanObjectName
 } from './assets.js';
 import { pieceName, nextStep, stepLabel } from './steps.js';
+import { listsRouter, listPlan, dropPrivateLists } from './lists.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
 const app = express();
@@ -154,6 +155,15 @@ app.put('/api/me/pin', requireAdult, (req, res) => {
 });
 
 app.get('/api/settings', (req, res) => res.json(getSettings()));
+
+// ---------- lists & notifications ----------
+
+app.use('/api/lists', requireAdult, listsRouter);
+
+// Everything this phone should be showing or have scheduled as Android
+// notifications for whoever is signed in on it. The app fetches it whenever
+// something changes and every so often in the background.
+app.get('/api/notify/plan', (req, res) => res.json({ entries: listPlan(req.account, req.device) }));
 
 // ---------- kid side ----------
 
@@ -632,6 +642,7 @@ parent.post('/profiles/:id/reset-pin', (req, res) => {
 parent.delete('/profiles/:id', (req, res) => {
   const p = profileRow(Number(req.params.id));
   if (p.id === req.account.id) throw httpError(400, "You can't delete the account you're signed in with");
+  dropPrivateLists(p.id);
   db.prepare('DELETE FROM profiles WHERE id = ?').run(p.id);
   res.json({ ok: true });
 });

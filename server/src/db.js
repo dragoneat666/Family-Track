@@ -232,7 +232,89 @@ const MIGRATIONS = [
       const { name, reveal } = pieceName(p.name);
       if (reveal) db.prepare('UPDATE pieces SET name = ?, reveal = 1 WHERE id = ?').run(name, p.id);
     }
-  }
+  },
+  // Shared lists (see lists.js). Phones keep their own copy so lists work
+  // without the server, which shapes these tables: ids are made on the phone,
+  // every change stamps the row with the next "rev" (a phone asks for
+  // everything after the last rev it saw), and deleted rows stay behind as
+  // markers until phones have had time to see them.
+  `
+  CREATE TABLE list_sync (id INTEGER PRIMARY KEY CHECK (id = 1), rev INTEGER NOT NULL, floor INTEGER NOT NULL);
+  INSERT INTO list_sync (id, rev, floor) VALUES (1, 0, 0);
+
+  -- kind: 'store' (sections + grocery suggestions) or 'plain' (to-dos and the like)
+  -- private: "Just me", only its owner sees it
+  CREATE TABLE lists (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'plain',
+    owner_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+    private INTEGER NOT NULL DEFAULT 0,
+    sort REAL NOT NULL DEFAULT 0,
+    rev INTEGER NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    changed_at INTEGER NOT NULL
+  );
+  -- key: the standard section it started as, so the starter grocery list
+  -- still knows where things go after a rename
+  CREATE TABLE list_sections (
+    id TEXT PRIMARY KEY,
+    list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    key TEXT,
+    sort REAL NOT NULL DEFAULT 0,
+    rev INTEGER NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    changed_at INTEGER NOT NULL
+  );
+  -- Times are milliseconds since 1970. remind_who: JSON { all: true } (every
+  -- grown-up) or { ids: [account ids] }.
+  CREATE TABLE list_items (
+    id TEXT PRIMARY KEY,
+    list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+    section_id TEXT,
+    name TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    sort REAL NOT NULL DEFAULT 0,
+    checked INTEGER NOT NULL DEFAULT 0,
+    checked_at INTEGER,
+    checked_by INTEGER,
+    added_by INTEGER,
+    remind_at INTEGER,
+    remind_who TEXT,
+    rev INTEGER NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    changed_at INTEGER NOT NULL
+  );
+  CREATE INDEX lists_rev ON lists(rev);
+  CREATE INDEX list_sections_rev ON list_sections(rev);
+  CREATE INDEX list_items_rev ON list_items(rev);
+  CREATE INDEX list_items_list ON list_items(list_id);
+  -- What each list has learned: which section a thing goes in there, and
+  -- how often it's been put on the list (for suggestions).
+  CREATE TABLE list_memory (
+    list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    section_id TEXT,
+    uses INTEGER NOT NULL DEFAULT 0,
+    used_at INTEGER,
+    rev INTEGER NOT NULL,
+    PRIMARY KEY (list_id, key)
+  );
+  CREATE INDEX list_memory_rev ON list_memory(rev);
+  -- Changes already applied: a phone that didn't hear back sends them again.
+  CREATE TABLE list_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL);
+  -- Things pinned to one phone's notifications by whoever is signed in there.
+  CREATE TABLE list_pins (
+    device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    target TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (device_id, profile_id, kind, target)
+  );
+  `
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

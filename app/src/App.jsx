@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, isNative } from './api.js';
+import { notify } from './notify.js';
 import { ServerAddress, FirstAccount } from './screens/Setup.jsx';
 import WhoAreYou from './screens/WhoAreYou.jsx';
 import Settings from './screens/Settings.jsx';
@@ -13,22 +14,50 @@ export default function App() {
   const [screen, setScreen] = useState('loading');
   const [account, setAccount] = useState(null);
   const [switching, setSwitching] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
+
+  // Tell the notification side who is signed in. A grown-up's lists keep it
+  // up to date from there (lists/store.js); for anyone else, fetch what the
+  // server has for them, which also clears the last person's.
+  function notifyAs(a) {
+    notify.configure().then(() => !a.isParent && notify.sync());
+  }
 
   async function load() {
     setError('');
-    setScreen('loading');
     if (isNative && !api.serverUrl) return setScreen('server');
+    // A grown-up gets straight in as whoever was signed in here last time,
+    // server or no server (NetBird off, no signal): their lists are kept on
+    // the device. The server is asked behind the scenes.
+    const known = api.token ? api.knownAccount : null;
+    if (known?.isParent) {
+      setAccount(known);
+      setScreen('home');
+      notify.configure();
+    } else {
+      setScreen('loading');
+    }
     try {
       if (api.token) {
         try {
-          const me = await api.get('/api/me');
+          const me = await api.get('/api/me', { timeout: known ? 6000 : 20000 });
+          api.rememberAccount(me.account);
+          notifyAs(me.account);
+          setOffline(false);
           setAccount(me.account);
-          setScreen('home');
+          if (!known?.isParent) setScreen('home'); // (already there, maybe on to Settings by now)
           return;
         } catch (e) {
+          if (known?.isParent && e.status !== 401) {
+            notify.configure();
+            setOffline(e.status === 0);
+            return;
+          }
           if (e.status !== 401) throw e;
+          api.rememberAccount(null);
           if (!e.data?.deviceKnown) api.setToken(null);
+          notify.configure();
         }
       }
       const status = await api.get('/api/status');
@@ -42,6 +71,9 @@ export default function App() {
   useEffect(() => { load(); }, []);
 
   function signedIn(a) {
+    api.rememberAccount(a);
+    notifyAs(a);
+    setOffline(false);
     setAccount(a);
     setSwitching(false);
     setScreen('home');
@@ -81,12 +113,12 @@ export default function App() {
           account={account}
           onBack={() => setScreen('home')}
           onSwitch={() => { setSwitching(true); setScreen('who'); }}
-          onChangeServer={() => { api.setToken(null); setScreen('server'); }}
+          onChangeServer={() => { api.setToken(null); api.rememberAccount(null); notify.configure(); setScreen('server'); }}
         />
       );
     case 'home':
       return account.isParent
-        ? <FamilyArea account={account} onSettings={() => setScreen('settings')} onAuthLost={load} />
+        ? <FamilyArea account={account} offline={offline} onSettings={() => setScreen('settings')} onAuthLost={load} />
         : <KidArea profile={account} onSettings={() => setScreen('settings')} />;
     default:
       return null;

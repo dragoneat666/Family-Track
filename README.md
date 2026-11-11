@@ -1,6 +1,7 @@
 # Family Track
 
-A family app for the house, starting with kids' tooth brushing:
+A family app for the house: kids' tooth brushing, home exercises, and the
+grown-ups' shared lists.
 
 - **Brushing**: the tablet's front camera checks the kid is really brushing.
   The countdown (2:00, then 0:15 for the front teeth) only moves while they
@@ -29,6 +30,11 @@ A family app for the house, starting with kids' tooth brushing:
   - *Exercise partners*: any character can be one. Kids pick their partner in
     Settings, from the characters they've finished building plus any open to
     everyone, and get that partner's exercises.
+- **Lists**: the grown-ups' shared lists, one per store plus anything else
+  (to-dos, packing). Store lists are sorted by section in the order you walk
+  that store and suggest groceries as you type; anything can be pinned to the
+  phone's notifications or given a reminder. They work with no connection
+  and catch up later. More under [Lists](#lists).
 - **Accounts**: grown-up and kid accounts. Each device asks "Who are you?"
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
@@ -38,7 +44,8 @@ A family app for the house, starting with kids' tooth brushing:
   building that save nothing. Everything except brushing also works in a
   browser (the web app is served by the server itself).
 
-Later: chores and allowance, shared lists, calendar, meal plans and recipes.
+Later: calendar and daily reminders, contacts, meal plans and recipes, chores
+and allowance.
 
 ## Privacy
 
@@ -54,6 +61,7 @@ internet while brushing.
 |---|---|
 | `server/` | Node 24, Express, SQLite (built into Node). Stores everything in `/data`. Shrinks uploaded 3D files for the tablets. |
 | `app/` | React + three.js, packaged as an Android app with Capacitor. The same build is served by the server for testing in a browser. |
+| `app/android/…/notify/` | The Android side of reminders and pins (alarms, notification buttons, the background check), in Java. |
 | Brushing | MediaPipe face detector (BlazeFace) + movement in a patch around the mouth that follows the face. |
 
 The app talks to the server over a private network (e.g. a VPN such as
@@ -214,6 +222,55 @@ with left and right swapped in the words, the animations (.L/.R) and the voice
 lines. "Make voice lines from the words" and "Split one recording into the
 scenes" give a whole exercise its voice in one go. Changes save by themselves.
 
+## Lists
+
+Grown-up area → **Lists**. Kids don't see them.
+
+- **Store lists** group things by section (Produce, Dairy & Eggs, …). A new
+  one starts with a standard set of sections and a few hundred common
+  groceries that know where they go, so typing "ban" offers Bananas and puts
+  them under Produce. Each list then learns its own store: under ⋯ →
+  **Sections**, drag them into the order you walk the aisles, rename them, add
+  your own. Move an item to another section and that list remembers it for
+  next time. A new store list can copy another list's sections.
+- **Plain lists** are for everything else.
+- Tapping an item checks it off and moves it to **Checked** at the bottom,
+  where it stays until **Clear checked**. Adding something that's sitting in
+  Checked brings it back instead of adding it twice. `milk x2` or
+  `milk (the big one)` adds a note.
+- **Just me** (when making a list, or under ⋯) hides a list from everyone else.
+- Everyone's phone shows a change within a second or two.
+
+**Without the server.** Each phone keeps its own copy of the lists, so they
+open and change with no connection (the VPN is off, no signal in the store).
+A grown-up's phone opens straight to where it was, without asking the server
+first. Changes wait on the phone and are sent when the server is in reach
+again; a note at the top says so meanwhile.
+
+**Reminders** (⋯ next to an item):
+
+- **Pin to this phone's notifications**: it sits in the notification area
+  with a **Done** button until it's checked off. A whole list can be pinned
+  too (under the list's ⋯) and shows what's left. Pins are per phone, come
+  back after a restart, and go away if swiped off (Android 14 and later let
+  you swipe them).
+- **At a time**: a notification with **Done** at that time, for you or for
+  the grown-ups you tick.
+
+Done works from the notification without opening the app. Reminders are set
+as alarms on the phone itself, so they go off on time with no connection.
+About every 15 minutes (as often as Android allows) the phone also checks the
+server in the background, which is how a reminder someone else set for you
+arrives while the app is closed. Android asks once for permission to show
+notifications.
+
+How it fits together, for the curious: the phone sends each change as a small
+"op" and asks the server for everything after the last change it saw
+(`server/src/lists.js`, `app/src/lists/store.js`); the server tells each
+phone which notifications it should be showing (`GET /api/notify/plan`), and
+the Java code in `app/android/…/notify/` turns that into alarms and
+notifications.
+
 ## Developing
 
 No Node needed on the host. Everything runs in Docker:
@@ -221,4 +278,12 @@ No Node needed on the host. Everything runs in Docker:
 ```
 docker build -t family-track:dev .
 docker run --rm -p 8080:8080 -v "$PWD/data:/data" family-track:dev
+```
+
+The Android notification code has unit tests that run on the build machine
+(on Robolectric, a stand-in for Android); every app build runs them first.
+To run only the tests:
+
+```
+docker run --rm -v "$PWD:/src:ro" family-track-android test
 ```
