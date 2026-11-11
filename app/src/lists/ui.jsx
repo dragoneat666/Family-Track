@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 
 // A panel that slides up over the screen. Tapping outside it, its Done
 // button or the phone's Back button closes it.
-export function Sheet({ title, onClose, children, closeLabel = 'Done' }) {
+export function Sheet({ title, onClose, children, closeLabel = 'Done', wide }) {
   return (
     <div className="sheet-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet" role="dialog" aria-label={title}>
+      <div className={wide ? 'sheet wide' : 'sheet'} role="dialog" aria-label={title}>
         <div className="sheet-head">
           <h3>{title}</h3>
           <button data-back className={closeLabel === 'Done' ? 'btn primary small' : 'btn small'} onClick={onClose}>{closeLabel}</button>

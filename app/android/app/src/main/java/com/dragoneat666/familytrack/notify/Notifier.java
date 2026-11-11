@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
@@ -99,6 +100,23 @@ public final class Notifier {
     public static synchronized void reconcile(Context ctx) {
         try {
             JSONObject state = NotifyStore.state(ctx);
+            long now = System.currentTimeMillis();
+
+            // Has the phone restarted since we last looked? Then Android dropped
+            // every notification and alarm of ours. (Android tells us with a
+            // broadcast too, see BootReceiver, but that can come late; this
+            // way whatever runs first after a restart puts things back.)
+            int boot = bootCount(ctx);
+            boolean restarted = state.has("boot") && state.optInt("boot") != boot;
+            state.put("boot", boot);
+            if (restarted) {
+                JSONArray wereUp = new JSONArray();
+                for (String id : keys(child(state, "shown"))) wereUp.put(id);
+                state.put("repost", wereUp);
+                state.put("shown", new JSONObject());
+                state.put("alarms", new JSONObject());
+            }
+
             Map<String, JSONObject> want = wanted(ctx, state);
             JSONObject shown = child(state, "shown");
             JSONObject alarms = child(state, "alarms");
@@ -106,7 +124,7 @@ public final class Notifier {
             JSONArray repostList = state.optJSONArray("repost");
             List<String> repost = new ArrayList<>();
             if (repostList != null) for (int i = 0; i < repostList.length(); i++) repost.add(repostList.optString(i));
-            long now = System.currentTimeMillis();
+            int putBack = 0;
 
             // What we think is up may have been taken down behind our back (the
             // app was force-stopped, say). Forget those, so pins get put back.
@@ -129,33 +147,64 @@ public final class Notifier {
                 String id = e.optString("id");
                 String hash = Integer.toHexString(e.toString().hashCode());
                 boolean up = shown.has(id);
+                boolean ongoing = e.optBoolean("ongoing");
                 if (e.isNull("at")) {
                     // A pin: there for as long as it's in the plan, quietly kept up to date.
-                    if (!hash.equals(shown.optString(id)) && show(ctx, e, true)) shown.put(id, hash);
+                    if (!hash.equals(shown.optString(id)) && show(ctx, e, true)) {
+                        shown.put(id, hash);
+                        if (!up) putBack++;
+                    }
                     continue;
                 }
                 long at = e.optLong("at");
                 String key = id + "@" + at;
                 if (fired.has(key)) {
                     // Already shown at its time. Keep its words current while it's
-                    // still up, and put it back if a restart took it down.
+                    // still up. Put it back if a restart took it down, or (a pin
+                    // that waited for its time) if anything did.
                     boolean changed = up && !hash.equals(shown.optString(id));
-                    if ((changed || (!up && repost.contains(id))) && show(ctx, e, true)) shown.put(id, hash);
+                    boolean lost = !up && (ongoing || repost.contains(id));
+                    if ((changed || lost) && show(ctx, e, true)) {
+                        shown.put(id, hash);
+                        if (lost) putBack++;
+                    }
                 } else if (at <= now) {
                     // Its time passed while we weren't looking (phone off, alarm lost).
+                    // A reminder that's more than a day late isn't worth a notification;
+                    // a pin still belongs up, without the noise.
                     fired.put(key, now);
-                    if (at >= now - LATE_MS && show(ctx, e, false)) shown.put(id, hash);
-                } else if (alarms.optLong(id, -1) != at) {
-                    setAlarm(ctx, id, at);
-                    alarms.put(id, at);
+                    boolean late = at < now - LATE_MS;
+                    if ((!late || ongoing) && show(ctx, e, late || e.optBoolean("quiet"))) shown.put(id, hash);
+                } else {
+                    // Not time yet. If it's showing (its time was moved later, or a
+                    // pin was given a time), take it down until then.
+                    if (up) {
+                        cancelNotification(ctx, id);
+                        shown.remove(id);
+                    }
+                    if (alarms.optLong(id, -1) != at) {
+                        setAlarm(ctx, id, at);
+                        alarms.put(id, at);
+                    }
                 }
             }
 
             for (String key : keys(fired)) if (fired.optLong(key) < now - KEEP_FIRED_MS) fired.remove(key);
             state.remove("repost");
             NotifyStore.setState(ctx, state);
+            if (restarted) NotifyStore.log(ctx, "After a restart: put " + putBack + " back, " + alarms.length() + " alarms set");
         } catch (Exception e) {
             Log.w(TAG, "reconcile failed", e);
+            NotifyStore.log(ctx, "Something went wrong setting up notifications: " + e);
+        }
+    }
+
+    /** How many times this phone has started up: a different number means it restarted. */
+    private static int bootCount(Context ctx) {
+        try {
+            return Settings.Global.getInt(ctx.getContentResolver(), Settings.Global.BOOT_COUNT, 0);
+        } catch (Exception e) {
+            return 0;
         }
     }
 
@@ -169,11 +218,14 @@ public final class Notifier {
             String key = id + "@" + at;
             if (e != null && !e.isNull("at") && e.optLong("at") == at && !fired.has(key)) {
                 fired.put(key, System.currentTimeMillis());
-                if (show(ctx, e, false)) child(state, "shown").put(id, Integer.toHexString(e.toString().hashCode()));
+                boolean ok = show(ctx, e, e.optBoolean("quiet"));
+                if (ok) child(state, "shown").put(id, Integer.toHexString(e.toString().hashCode()));
+                NotifyStore.log(ctx, (ok ? "Shown at its time: " : "Android would not show: ") + e.optString("title"));
             }
             NotifyStore.setState(ctx, state);
         } catch (Exception ex) {
             Log.w(TAG, "fire failed", ex);
+            NotifyStore.log(ctx, "Something went wrong showing a reminder: " + ex);
         }
     }
 
@@ -186,6 +238,8 @@ public final class Notifier {
             boolean swiped = ActionReceiver.DISMISSED.equals(action);
             cancelNotification(ctx, id);
             JSONObject state = NotifyStore.state(ctx);
+            JSONObject entry = wanted(ctx, state).get(id);
+            if (!swiped || ongoing) NotifyStore.log(ctx, (swiped ? "Swiped away: " : "Tapped " + action + " on: ") + (entry == null ? id : entry.optString("title")));
             child(state, "shown").remove(id);
             // A reminder swiped away is just out of the way: nothing changes.
             boolean matters = !swiped || ongoing;
@@ -193,7 +247,7 @@ public final class Notifier {
             NotifyStore.setState(ctx, state);
             if (!matters) return false;
             JSONObject post = postJson == null ? null : new JSONObject(postJson);
-            NotifyStore.addEvent(ctx, id, action, post, System.currentTimeMillis());
+            NotifyStore.addEvent(ctx, id, action, entry == null ? id : entry.optString("title"), post, System.currentTimeMillis());
             return post != null;
         } catch (Exception e) {
             Log.w(TAG, "acted failed", e);
@@ -213,18 +267,18 @@ public final class Notifier {
         }
     }
 
-    /** The phone restarted (or the app was updated): notifications and alarms are gone. */
-    static synchronized void restarted(Context ctx) {
+    /**
+     * The app was updated: like a restart, Android dropped our notifications
+     * and alarms (but the phone's start-up count, which reconcile goes by,
+     * hasn't changed). Put everything back.
+     */
+    static synchronized void appReplaced(Context ctx) {
         try {
             JSONObject state = NotifyStore.state(ctx);
-            JSONArray repost = new JSONArray();
-            for (String id : keys(child(state, "shown"))) repost.put(id);
-            state.put("repost", repost);
-            state.put("shown", new JSONObject());
-            state.put("alarms", new JSONObject());
+            state.put("boot", -1);
             NotifyStore.setState(ctx, state);
         } catch (Exception e) {
-            Log.w(TAG, "restarted failed", e);
+            Log.w(TAG, "appReplaced failed", e);
         }
         reconcile(ctx);
     }
@@ -285,8 +339,10 @@ public final class Notifier {
             try {
                 request(ctx, "POST", path, String.valueOf(post.opt("body")));
                 sent.add(ev.optString("uid"));
+                reached(ctx, true, null);
+                NotifyStore.log(ctx, "Told the server: " + ev.optString("action") + " on " + ev.optString("title", ev.optString("id")));
             } catch (IOException e) {
-                Log.i(TAG, "could not send " + ev.optString("action") + " for " + ev.optString("id") + ": " + e.getMessage());
+                reached(ctx, false, e.getMessage());
                 break; // no server right now; the rest would fail too
             }
         }
@@ -329,12 +385,41 @@ public final class Notifier {
                     boolean stale = suppressed.optLong(id) < now - UNSUPPRESS_MS && !unsent.contains(id);
                     if (!inPlan.contains(id) || stale) suppressed.remove(id);
                 }
+                state.put("lastFetch", new JSONObject().put("at", now).put("entries", plan.length()));
                 NotifyStore.setState(ctx, state);
             }
+            reached(ctx, true, null);
             return true;
         } catch (IOException | JSONException e) {
-            Log.i(TAG, "plan not fetched: " + e.getMessage());
+            reached(ctx, false, e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Note in the log when the server goes out of reach and when it's back
+     * (once each time, not on every try).
+     */
+    private static synchronized void reached(Context ctx, boolean ok, String why) {
+        try {
+            JSONObject state = NotifyStore.state(ctx);
+            if (state.has("reached") && state.optBoolean("reached") == ok) return;
+            state.put("reached", ok);
+            NotifyStore.setState(ctx, state);
+            NotifyStore.log(ctx, ok ? "Reached the server" : "Could not reach the server (" + why + "). Will keep trying.");
+        } catch (JSONException e) {
+            Log.w(TAG, "reached failed", e);
+        }
+    }
+
+    /** The background check ran (for the status in the app's Settings). */
+    static synchronized void workerRan(Context ctx) {
+        try {
+            JSONObject state = NotifyStore.state(ctx);
+            state.put("lastWorker", System.currentTimeMillis());
+            NotifyStore.setState(ctx, state);
+        } catch (JSONException e) {
+            Log.w(TAG, "workerRan failed", e);
         }
     }
 
@@ -375,17 +460,15 @@ public final class Notifier {
     private static void ensureChannels(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-        if (nm.getNotificationChannel(CHANNEL_REMINDERS) == null) {
-            NotificationChannel reminders = new NotificationChannel(CHANNEL_REMINDERS, "Reminders", NotificationManager.IMPORTANCE_HIGH);
-            reminders.setDescription("Reminders at the time you set");
-            nm.createNotificationChannel(reminders);
-        }
-        if (nm.getNotificationChannel(CHANNEL_PINS) == null) {
-            NotificationChannel pins = new NotificationChannel(CHANNEL_PINS, "Pinned", NotificationManager.IMPORTANCE_LOW);
-            pins.setDescription("Things you pinned, kept here until they're done");
-            pins.setShowBadge(false);
-            nm.createNotificationChannel(pins);
-        }
+        // Making a channel that exists only updates its name and description
+        // (what the user chose for sound and so on is kept).
+        NotificationChannel reminders = new NotificationChannel(CHANNEL_REMINDERS, "Reminders", NotificationManager.IMPORTANCE_HIGH);
+        reminders.setDescription("Reminders at the time you set");
+        nm.createNotificationChannel(reminders);
+        NotificationChannel pins = new NotificationChannel(CHANNEL_PINS, "Pinned and all-day (quiet)", NotificationManager.IMPORTANCE_LOW);
+        pins.setDescription("Things you pinned, and reminders for a whole day: no sound, kept until they're done");
+        pins.setShowBadge(false);
+        nm.createNotificationChannel(pins);
     }
 
     /** Returns false when Android won't show it (notifications are off for the app). */

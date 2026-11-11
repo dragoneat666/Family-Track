@@ -35,11 +35,14 @@
         </provider>
 
         <!-- Reminders and pins (see java/.../notify). None of these can be
-             started by other apps. -->
-        <receiver android:name=".notify.AlarmReceiver" android:exported="false" />
-        <receiver android:name=".notify.ActionReceiver" android:exported="false" />
-        <receiver android:name=".notify.BootReceiver" android:exported="false">
+             started by other apps. directBootAware: they also run right after
+             a restart, before the phone has been unlocked, so alarms and pins
+             are back without waiting for that. -->
+        <receiver android:name=".notify.AlarmReceiver" android:exported="false" android:directBootAware="true" />
+        <receiver android:name=".notify.ActionReceiver" android:exported="false" android:directBootAware="true" />
+        <receiver android:name=".notify.BootReceiver" android:exported="false" android:directBootAware="true">
             <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>

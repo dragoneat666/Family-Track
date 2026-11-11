@@ -4,8 +4,13 @@ import { api, isNative } from '../api.js';
 import { PuzzleLevelPicker, PUZZLE_LEVELS } from './PuzzleLevel.jsx';
 import { useExercises } from '../exercises/useExercises.js';
 import { PartnerPicker } from '../exercises/Exercises.jsx';
+import { Sheet } from '../lists/ui.jsx';
+import AccountsTab from './parent/AccountsTab.jsx';
+import DevicesTab from './parent/DevicesTab.jsx';
+import NotifyStatus from './NotifyStatus.jsx';
 
-export default function Settings({ account, onBack, onSwitch, onChangeServer }) {
+export default function Settings({ account, onBack, onSwitch, onChangeServer, onAuthLost }) {
+  const [showing, setShowing] = useState(null); // 'accounts' | 'devices'
   const [deviceName, setDeviceName] = useState('');
   const [version, setVersion] = useState('');
   const [currentPin, setCurrentPin] = useState('');
@@ -93,6 +98,17 @@ export default function Settings({ account, onBack, onSwitch, onChangeServer }) 
         )}
 
         {account.isParent && (
+          <div className="card stack">
+            <h3>Family</h3>
+            <div className="row wrap">
+              <button className="btn" onClick={() => setShowing('accounts')}>👥 Accounts</button>
+              <button className="btn" onClick={() => setShowing('devices')}>📱 Devices</button>
+            </div>
+            <p className="muted small">Who is in the family, and which phones and tablets are signed in.</p>
+          </div>
+        )}
+
+        {account.isParent && (
           <form className="card stack" onSubmit={changePin}>
             <h3>Change my PIN</h3>
             <div className="row wrap">
@@ -116,10 +132,14 @@ export default function Settings({ account, onBack, onSwitch, onChangeServer }) 
           </form>
         )}
 
+        {account.isParent && <NotifyStatus />}
+
         {msg && <p className="muted">{msg}</p>}
         {error && <p className="error">{error}</p>}
         {version && <p className="muted small">Family Track {version}</p>}
       </main>
+      {showing === 'accounts' && <Sheet wide title="Accounts" onClose={() => setShowing(null)}><AccountsTab onAuthLost={onAuthLost} /></Sheet>}
+      {showing === 'devices' && <Sheet wide title="Devices" onClose={() => setShowing(null)}><DevicesTab onAuthLost={onAuthLost} /></Sheet>}
     </div>
   );
 }

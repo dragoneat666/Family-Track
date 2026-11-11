@@ -28,6 +28,7 @@ public class SyncWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
+        Notifier.workerRan(getApplicationContext());
         Notifier.sync(getApplicationContext());
         return Result.success();
     }

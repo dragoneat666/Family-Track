@@ -85,5 +85,13 @@ export const notify = {
     if (!Native) return false;
     if ((await this.permission()) === 'granted') return true;
     return (await quiet(Native.requestPermission()))?.notifications === 'granted';
+  },
+
+  // How it's going on this phone, for Settings: { notifications, exactAlarms,
+  // restricted, reached, lastFetch: { at, entries }, lastWorker, showing,
+  // alarms, log: [{ t, m }] }. Null in a browser.
+  async status() {
+    if (!Native) return null;
+    return quiet(Native.status());
   }
 };

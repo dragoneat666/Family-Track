@@ -569,6 +569,18 @@ parent.post('/tracking-log', (req, res) => {
   res.json({ ok: true });
 });
 
+// What the notification side of a phone did lately (Settings -> "Send to the
+// server"), kept for working out why a reminder or pin misbehaved.
+parent.post('/notify-log', (req, res) => {
+  const dir = path.join(DATA_DIR, 'notify-logs');
+  fs.mkdirSync(dir, { recursive: true });
+  const name = `${new Date().toISOString().replace(/[:.]/g, '-')}-device${req.device.id}.json`;
+  fs.writeFileSync(path.join(dir, name), JSON.stringify({ deviceId: req.device.id, accountId: req.account.id, userAgent: req.body.userAgent, status: req.body.status }, null, 1));
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  for (const old of files.slice(0, -30)) fs.rmSync(path.join(dir, old), { force: true });
+  res.json({ ok: true });
+});
+
 parent.put('/settings', (req, res) => {
   const b = req.body;
   const patch = {};

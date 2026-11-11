@@ -23,7 +23,7 @@ export default function DevicesTab({ onAuthLost }) {
       {error && <p className="error">{error}</p>}
       <div className="card">
         <h3>Signed-in devices</h3>
-        <p className="muted small">Rename a device in its own Settings. Change your PIN in Settings (⚙️).</p>
+        <p className="muted small">Rename a device in its own Settings.</p>
         <table className="history">
           <tbody>
             {devices.map((d) => (

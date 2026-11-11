@@ -30,7 +30,7 @@ export default function OverviewTab({ onAuthLost }) {
     <div className="stack">
       {error && <p className="error">{error}</p>}
       {msg && <p className="muted">{msg}</p>}
-      {kids && !kids.length && <p className="muted">No kid accounts yet. Add them under Accounts.</p>}
+      {kids && !kids.length && <p className="muted">No kid accounts yet. Add them on the home screen under ⚙️ → Accounts.</p>}
       <div className="overview-grid">
         {kids?.map((k) => (
           <div key={k.profile.id} className="card overview-card" style={{ '--c': k.profile.color }}>

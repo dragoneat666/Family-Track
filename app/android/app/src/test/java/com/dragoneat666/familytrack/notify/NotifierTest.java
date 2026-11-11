@@ -13,6 +13,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.provider.Settings;
 
 import androidx.test.core.app.ApplicationProvider;
 
@@ -108,6 +110,21 @@ public class NotifierTest {
 
     private List<ShadowAlarmManager.ScheduledAlarm> alarms() {
         return shadowOf(am).getScheduledAlarms();
+    }
+
+    /** What a restart does: Android forgets our notifications and alarms, and its start-up count goes up. */
+    private void restartPhone() {
+        nm.cancelAll();
+        for (ShadowAlarmManager.ScheduledAlarm a : new ArrayList<>(alarms())) am.cancel(a.operation);
+        int boots = Settings.Global.getInt(ctx.getContentResolver(), Settings.Global.BOOT_COUNT, 0);
+        Settings.Global.putInt(ctx.getContentResolver(), Settings.Global.BOOT_COUNT, boots + 1);
+    }
+
+    private int logLines(String containing) throws Exception {
+        int n = 0;
+        JSONArray log = NotifyStore.log(ctx);
+        for (int i = 0; i < log.length(); i++) if (log.getJSONObject(i).getString("m").contains(containing)) n++;
+        return n;
     }
 
     // ---------- tests ----------
@@ -262,12 +279,16 @@ public class NotifierTest {
             reminder("remind-gone", "Swiped before the restart", now - 2000));
         Notifier.reconcile(ctx);
         press(shown("remind-gone").deleteIntent);
-        // The phone restarts: Android forgets notifications and alarms.
-        nm.cancelAll();
-        for (ShadowAlarmManager.ScheduledAlarm a : new ArrayList<>(alarms())) am.cancel(a.operation);
+        restartPhone();
         assertEquals(0, alarms().size());
 
+        // Android says so twice: before the first unlock, and after it.
+        new BootReceiver().onReceive(ctx, new Intent(Intent.ACTION_LOCKED_BOOT_COMPLETED));
+        assertNotNull(shown("pin-item-a"));
+        assertEquals(1, alarms().size());
         new BootReceiver().onReceive(ctx, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        assertEquals(1, logLines("After a restart: put 2 back, 1 alarms set"));
+        assertEquals(1, logLines("After a restart"));
         assertNotNull(shown("pin-item-a"));
         assertNotNull(shown("remind-up"));
         assertNull(shown("remind-gone"));
@@ -302,6 +323,129 @@ public class NotifierTest {
         Notifier.reconcile(ctx);
         assertEquals(1, alarms().size());
         assertEquals(at, alarms().get(0).getTriggerAtMs());
+    }
+
+    @Test
+    public void aRestartIsNoticedEvenIfAndroidNeverSaysSo() throws Exception {
+        long at = System.currentTimeMillis() + HOUR;
+        plan(pin("pin-item-a", "Milk"), reminder("remind-a", "Later", at));
+        Notifier.reconcile(ctx);
+        restartPhone();
+        // No broadcast: the next thing that runs (the background check, the app) puts it all back.
+        Notifier.reconcile(ctx);
+        assertNotNull(shown("pin-item-a"));
+        assertEquals(1, alarms().size());
+        assertEquals(at, alarms().get(0).getTriggerAtMs());
+    }
+
+    @Test
+    public void anAppUpdatePutsEverythingBack() throws Exception {
+        plan(pin("pin-item-a", "Milk"), reminder("remind-a", "Later", System.currentTimeMillis() + HOUR));
+        Notifier.reconcile(ctx);
+        nm.cancelAll();
+        for (ShadowAlarmManager.ScheduledAlarm a : new ArrayList<>(alarms())) am.cancel(a.operation);
+        new BootReceiver().onReceive(ctx, new Intent(Intent.ACTION_MY_PACKAGE_REPLACED));
+        assertNotNull(shown("pin-item-a"));
+        assertEquals(1, alarms().size());
+    }
+
+    @Test
+    public void aPinWithATimeWaitsForItThenStays() throws Exception {
+        long at = System.currentTimeMillis() + HOUR;
+        JSONObject waiting = pin("pin-item-a", "Call places").put("at", at).put("channel", "reminders").put("quiet", false);
+        plan(waiting);
+        Notifier.reconcile(ctx);
+        assertNull(shown("pin-item-a"));
+        assertEquals(at, alarms().get(0).getTriggerAtMs());
+
+        new AlarmReceiver().onReceive(ctx, shadowOf(alarms().get(0).operation).getSavedIntent());
+        Notification n = shown("pin-item-a");
+        assertNotNull(n);
+        assertTrue((n.flags & Notification.FLAG_ONGOING_EVENT) != 0);
+        assertEquals("reminders", n.getChannelId());
+
+        // Taken down behind our back: unlike a plain reminder, a pin goes back up.
+        nm.cancelAll();
+        Notifier.reconcile(ctx);
+        assertNotNull(shown("pin-item-a"));
+        // And after a restart too.
+        restartPhone();
+        Notifier.reconcile(ctx);
+        assertNotNull(shown("pin-item-a"));
+        assertEquals(0, alarms().size());
+    }
+
+    @Test
+    public void givingAShowingPinADateHidesItUntilThen() throws Exception {
+        plan(pin("pin-item-a", "Call places"));
+        Notifier.reconcile(ctx);
+        assertNotNull(shown("pin-item-a"));
+
+        long monday = System.currentTimeMillis() + 20 * HOUR;
+        plan(pin("pin-item-a", "Call places").put("at", monday).put("quiet", true));
+        Notifier.reconcile(ctx);
+        assertNull(shown("pin-item-a"));
+        assertEquals(monday, alarms().get(0).getTriggerAtMs());
+
+        // The date is taken off again: it is back straight away.
+        plan(pin("pin-item-a", "Call places"));
+        Notifier.reconcile(ctx);
+        assertNotNull(shown("pin-item-a"));
+        assertEquals(0, alarms().size());
+    }
+
+    @Test
+    public void aPinWhoseDayPassedWhileThePhoneWasOffStillShows() throws Exception {
+        long threeDaysAgo = System.currentTimeMillis() - 72 * HOUR;
+        plan(pin("pin-item-a", "Call places").put("at", threeDaysAgo).put("quiet", true),
+            reminder("remind-b", "Just a reminder", threeDaysAgo));
+        Notifier.reconcile(ctx);
+        assertNotNull(shown("pin-item-a"));
+        assertNull(shown("remind-b"));
+    }
+
+    @Test
+    public void movingAReminderLaterTakesItDownUntilThen() throws Exception {
+        plan(reminder("remind-a", "Call", System.currentTimeMillis() - 1000));
+        Notifier.reconcile(ctx);
+        assertNotNull(shown("remind-a"));
+        long later = System.currentTimeMillis() + HOUR;
+        plan(reminder("remind-a", "Call", later));
+        Notifier.reconcile(ctx);
+        assertNull(shown("remind-a"));
+        assertEquals(later, alarms().get(0).getTriggerAtMs());
+    }
+
+    @Test
+    public void whatOlderAppBuildsSavedIsBroughtOver() throws Exception {
+        // App builds up to 0.1.18 kept the plan next to the sign-in, in storage that is locked after a restart.
+        SharedPreferences data = ctx.createDeviceProtectedStorageContext().getSharedPreferences("family_notify_data", Context.MODE_PRIVATE);
+        data.edit().clear().commit();
+        SharedPreferences old = ctx.getSharedPreferences("family_notify", Context.MODE_PRIVATE);
+        JSONObject oldState = new JSONObject().put("fired", new JSONObject().put("remind-x@5", 7));
+        old.edit().putString("server", "http://example.test").putString("token", "tok")
+            .putString("plan", new JSONArray().put(pin("pin-item-a", "Milk")).toString())
+            .putString("state", oldState.toString()).commit();
+
+        assertEquals(1, NotifyStore.plan(ctx).length());
+        assertTrue(NotifyStore.state(ctx).getJSONObject("fired").has("remind-x@5"));
+        assertEquals("tok", NotifyStore.token(ctx));
+        assertFalse(old.contains("plan"));
+        assertFalse(old.contains("state"));
+        Notifier.reconcile(ctx);
+        assertNotNull(shown("pin-item-a"));
+    }
+
+    @Test
+    public void theLogSaysWhatHappened() throws Exception {
+        plan(pin("pin-item-a", "Milk"));
+        Notifier.reconcile(ctx);
+        press(shown("pin-item-a").actions[0].actionIntent);
+        assertEquals(1, logLines("Tapped done on: Milk"));
+        // It never grows without end.
+        for (int i = 0; i < 200; i++) NotifyStore.log(ctx, "line " + i);
+        assertEquals(80, NotifyStore.log(ctx).length());
+        assertEquals(1, logLines("line 199"));
     }
 
     @Test

@@ -14,7 +14,6 @@ export default function App() {
   const [screen, setScreen] = useState('loading');
   const [account, setAccount] = useState(null);
   const [switching, setSwitching] = useState(false);
-  const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
 
   // Tell the notification side who is signed in. A grown-up's lists keep it
@@ -44,16 +43,12 @@ export default function App() {
           const me = await api.get('/api/me', { timeout: known ? 6000 : 20000 });
           api.rememberAccount(me.account);
           notifyAs(me.account);
-          setOffline(false);
           setAccount(me.account);
           if (!known?.isParent) setScreen('home'); // (already there, maybe on to Settings by now)
           return;
         } catch (e) {
-          if (known?.isParent && e.status !== 401) {
-            notify.configure();
-            setOffline(e.status === 0);
-            return;
-          }
+          // No server in reach (or it's having trouble): they stay in.
+          if (known?.isParent && e.status !== 401) return;
           if (e.status !== 401) throw e;
           api.rememberAccount(null);
           if (!e.data?.deviceKnown) api.setToken(null);
@@ -73,7 +68,6 @@ export default function App() {
   function signedIn(a) {
     api.rememberAccount(a);
     notifyAs(a);
-    setOffline(false);
     setAccount(a);
     setSwitching(false);
     setScreen('home');
@@ -114,11 +108,12 @@ export default function App() {
           onBack={() => setScreen('home')}
           onSwitch={() => { setSwitching(true); setScreen('who'); }}
           onChangeServer={() => { api.setToken(null); api.rememberAccount(null); notify.configure(); setScreen('server'); }}
+          onAuthLost={load}
         />
       );
     case 'home':
       return account.isParent
-        ? <FamilyArea account={account} offline={offline} onSettings={() => setScreen('settings')} onAuthLost={load} />
+        ? <FamilyArea account={account} onSettings={() => setScreen('settings')} onAuthLost={load} />
         : <KidArea profile={account} onSettings={() => setScreen('settings')} />;
     default:
       return null;

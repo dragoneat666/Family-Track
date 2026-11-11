@@ -314,7 +314,10 @@ const MIGRATIONS = [
     at INTEGER NOT NULL,
     PRIMARY KEY (device_id, profile_id, kind, target)
   );
-  `
+  `,
+  // A reminder for a whole day instead of a time: it shows up quietly when
+  // that day starts (remind_at is then midnight on the phone that set it).
+  `ALTER TABLE list_items ADD COLUMN remind_all_day INTEGER NOT NULL DEFAULT 0;`
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

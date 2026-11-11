@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { notify } from '../notify.js';
-import { useLists, lists, sectionsOf, itemsOf, openItems, checkedItems, suggest, parseEntry, isPinned } from './store.js';
+import { useLists, lists, sectionsOf, itemsOf, openItems, checkedItems, suggest, parseEntry, isPinned, pinWaits } from './store.js';
 import { Sheet, Reorder, SyncNote } from './ui.jsx';
 
 // One list, full screen: add box with suggestions on top, what's left
@@ -73,8 +73,8 @@ export default function ListView({ listId, focusItem, onExit }) {
       <button className="li-main" onClick={() => lists.check(i.id, !i.checked)} aria-label={`${i.checked ? 'Put back' : 'Check off'} ${i.name}`}>
         <span className="li-box">{i.checked ? '✓' : ''}</span>
         <span className="li-name">{i.name}{i.note && <span className="li-note"> {i.note}</span>}</span>
-        {!i.checked && isPinned(v, 'item', i.id) && <span className="li-flag">📌</span>}
-        {!i.checked && i.remindAt && <span className={i.remindAt < Date.now() ? 'li-flag late' : 'li-flag'}>⏰ {shortTime(i.remindAt)}</span>}
+        {!i.checked && isPinned(v, 'item', i.id) && <span className="li-flag">📌{pinWaits(v, i) && i.remindAt > Date.now() ? ` ${whenText(i)}` : ''}</span>}
+        {!i.checked && i.remindAt && !pinWaits(v, i) && <span className={isLate(i) ? 'li-flag late' : 'li-flag'}>⏰ {whenText(i)}</span>}
       </button>
       <button className="li-more" onClick={() => setSheet({ item: i.id })} aria-label={`More about ${i.name}`}>⋯</button>
     </div>
@@ -137,31 +137,56 @@ export default function ListView({ listId, focusItem, onExit }) {
   );
 }
 
-// "5:00 PM" today, "Tue 5:00 PM" this week, "Nov 21, 5:00 PM" otherwise.
-export function shortTime(ms) {
-  const d = new Date(ms);
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
-  if (days === 0) return time;
-  if (days === 1) return `tomorrow ${time}`;
-  if (days === -1) return `yesterday ${time}`;
-  if (days > 1 && days < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
-  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
+const dayStart = (ms) => new Date(ms).setHours(0, 0, 0, 0);
+const daysFromToday = (ms) => Math.round((dayStart(ms) - dayStart(Date.now())) / 86400000);
+
+// "today", "tomorrow", "Tue" this week, "Nov 21" otherwise.
+export function shortDay(ms) {
+  const days = daysFromToday(ms);
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  if (days === -1) return 'yesterday';
+  if (days > 1 && days < 7) return new Date(ms).toLocaleDateString([], { weekday: 'short' });
+  return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-// <input type="datetime-local"> speaks "2026-11-21T17:00" in the phone's own time.
+// "5:00 PM" today, "Tue 5:00 PM" this week, "Nov 21, 5:00 PM" otherwise.
+export function shortTime(ms) {
+  const time = new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const days = daysFromToday(ms);
+  if (days === 0) return time;
+  return `${shortDay(ms)}${days > -2 && days < 7 ? '' : ','} ${time}`;
+}
+
+// When an item's reminder is: a time, or just a day.
+const whenText = (item) => (item.allDay ? shortDay(item.remindAt) : shortTime(item.remindAt));
+// The same inside a sentence: "at 5:00 PM", "tomorrow 9:00 AM", "on Tue", "tomorrow".
+const whenInWords = (item) => {
+  const near = Math.abs(daysFromToday(item.remindAt)) <= 1;
+  if (item.allDay) return near ? shortDay(item.remindAt) : `on ${shortDay(item.remindAt)}`;
+  return daysFromToday(item.remindAt) === 0 ? `at ${shortTime(item.remindAt)}` : shortTime(item.remindAt);
+};
+const isLate = (item) => (item.allDay ? daysFromToday(item.remindAt) < 0 : item.remindAt < Date.now());
+
+// Date and time boxes speak "2026-11-21T17:00" and "2026-11-21", in the phone's own time.
 const pad = (n) => String(n).padStart(2, '0');
-const toField = (ms) => {
+const toDayField = (ms) => {
   const d = new Date(ms);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const toField = (ms) => `${toDayField(ms)}T${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`;
+const fromDayField = (text) => {
+  const [y, m, d] = text.split('-').map(Number);
+  return new Date(y, m - 1, d).getTime();
 };
 
+// [label, when, allDay]
 function quickTimes() {
   const now = new Date();
   const at = (addDays, hour) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + addDays, hour).getTime();
-  const out = [['In 1 hour', Math.ceil((now.getTime() + 3600000) / 300000) * 300000]];
-  if (now.getHours() < 17) out.push(['Tonight 6 PM', at(0, 18)]);
-  out.push(['Tomorrow 8 AM', at(1, 8)]);
+  const out = [['In 1 hour', Math.ceil((now.getTime() + 3600000) / 300000) * 300000, false]];
+  if (now.getHours() < 17) out.push(['Tonight 6 PM', at(0, 18), false]);
+  out.push(['Tomorrow 8 AM', at(1, 8), false], ['Tomorrow, all day', at(1, 0), true]);
   return out;
 }
 
@@ -183,15 +208,26 @@ function ItemSheet({ v, list, item, onClose }) {
     if (on && !(await allowed())) return;
     lists.pin('item', item.id, on);
   }
-  async function remind(when, nextWho = who) {
+  async function remind(when, allDay = false, nextWho = who) {
     setWarn('');
     if (when) await allowed();
-    lists.remind(item.id, when, nextWho);
+    lists.remind(item.id, when, nextWho, allDay);
+  }
+  // All day: that day with no time. Back to a time: 9 in the morning that day.
+  function setAllDay(on) {
+    const day = dayStart(item.remindAt || Date.now() + 86400000);
+    remind(on ? day : day + 9 * 3600000, on);
   }
   function toggleWho(id) {
     const ids = v.people.map((p) => p.id).filter((p) => (p === id ? !gets(p) : gets(p)));
-    if (ids.length) remind(item.remindAt, { ids });
+    if (ids.length) remind(item.remindAt, item.allDay, { ids });
   }
+  // What will happen, in words.
+  const waits = pinWaits(v, item);
+  let plan = '';
+  if (pinned && waits && item.remindAt > Date.now()) plan = `📌 Shows up pinned on this phone ${whenInWords(item)}, and stays until it's done.`;
+  else if (pinned) plan = '📌 Pinned on this phone now, until it\'s done.';
+  else if (item.remindAt) plan = item.allDay ? `⏰ A quiet notification ${whenInWords(item)}, there from the start of the day.` : `⏰ A notification ${whenInWords(item)}.`;
   function remove() {
     lists.deleteItems([item.id]);
     onClose();
@@ -226,15 +262,23 @@ function ItemSheet({ v, list, item, onClose }) {
           ) : (
             <p className="muted small">📌 Pinning to notifications is in the Android app.</p>
           )}
-          <label>⏰ At a time
+          <label>⏰ When
             <div className="row">
-              <input type="datetime-local" value={item.remindAt ? toField(item.remindAt) : ''} onChange={(e) => remind(e.target.value ? new Date(e.target.value).getTime() : null)} />
+              {item.allDay
+                ? <input type="date" value={toDayField(item.remindAt)} onChange={(e) => remind(e.target.value ? fromDayField(e.target.value) : null, true)} />
+                : <input type="datetime-local" value={item.remindAt ? toField(item.remindAt) : ''} onChange={(e) => remind(e.target.value ? new Date(e.target.value).getTime() : null)} />}
               {item.remindAt && <button type="button" className="btn small" onClick={() => remind(null)}>Clear</button>}
             </div>
           </label>
+          <label className="inline check">
+            <input type="checkbox" checked={!!item.allDay} onChange={(e) => setAllDay(e.target.checked)} />
+            All day (no time: it's there, quietly, when that day starts)
+          </label>
           <div className="row wrap">
-            {quickTimes().map(([label, when]) => <button type="button" key={label} className="btn small" onClick={() => remind(when)}>{label}</button>)}
+            {quickTimes().map(([label, when, allDay]) => <button type="button" key={label} className="btn small" onClick={() => remind(when, allDay)}>{label}</button>)}
           </div>
+          {plan && <p className="small remind-plan">{plan}</p>}
+          {notify.available && pinned && !item.remindAt && <p className="muted small">Add a day or time and the pin waits until then to show up.</p>}
           {item.remindAt && !list.private && others.length > 0 && (
             <div className="row wrap">
               <span className="small">Who gets it:</span>

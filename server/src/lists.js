@@ -159,7 +159,7 @@ const OPS = {
     if (checked) dropPins('item', item.id);
     else if (op.again) {
       // Back on the list for another round: its old reminder doesn't apply.
-      db.prepare('UPDATE list_items SET remind_at = NULL, remind_who = NULL WHERE id = ?').run(item.id);
+      db.prepare('UPDATE list_items SET remind_at = NULL, remind_all_day = 0, remind_who = NULL WHERE id = ?').run(item.id);
       remember(list, item.name, null, true, ctx.at, ctx.rev);
     }
   },
@@ -173,12 +173,13 @@ const OPS = {
     }
   },
 
-  // when: the time to remind at (ms), or null for no reminder.
+  // when: the time to remind at (ms), or null for no reminder. allDay: no
+  // particular time, just that day (when = the start of it).
   'item.remind'(op, ctx) {
     const { item } = openItem(id(op.item, 'item'), ctx.account);
     const when = op.when == null ? null : Math.round(num(op.when, 0)) || null;
-    db.prepare('UPDATE list_items SET remind_at = ?, remind_who = ?, rev = ?, changed_at = ? WHERE id = ?')
-      .run(when, when ? JSON.stringify(cleanWho(op.who, ctx.account)) : null, ctx.rev, ctx.at, item.id);
+    db.prepare('UPDATE list_items SET remind_at = ?, remind_all_day = ?, remind_who = ?, rev = ?, changed_at = ? WHERE id = ?')
+      .run(when, when && op.allDay ? 1 : 0, when ? JSON.stringify(cleanWho(op.who, ctx.account)) : null, ctx.rev, ctx.at, item.id);
   },
 
   // Pin an item or a whole list to this phone's notifications.
@@ -232,7 +233,7 @@ function applyOps(ops, account, device) {
 const toSection = (s) => (s.deleted ? { id: s.id, deleted: true } : { id: s.id, list: s.list_id, name: s.name, key: s.key, sort: s.sort });
 const toItem = (i) => (i.deleted ? { id: i.id, deleted: true } : {
   id: i.id, list: i.list_id, section: i.section_id, name: i.name, note: i.note, sort: i.sort,
-  checked: !!i.checked, checkedAt: i.checked_at, remindAt: i.remind_at, who: i.remind_who ? JSON.parse(i.remind_who) : null
+  checked: !!i.checked, checkedAt: i.checked_at, remindAt: i.remind_at, allDay: !!i.remind_all_day, who: i.remind_who ? JSON.parse(i.remind_who) : null
 });
 
 // Everything this person can see that changed after `since`. A phone that's
@@ -304,6 +305,13 @@ listsRouter.post('/ops', (req, res) => {
 // What this phone should show for lists: reminders set on items, and
 // whatever is pinned on it. The app turns these into Android notifications
 // (see notify.js in the app); `post` is what tapping a button sends back.
+//
+// An item can be pinned (on one phone), have a reminder (a time or a whole
+// day, for the people picked), or both:
+//   pinned             shows on that phone now, and stays until it's done
+//   a time             a notification at that time, with a sound
+//   a day              a quiet notification from the start of that day
+//   pinned + time/day  nothing until then; then it shows up as the pin
 
 const listOps = (ops) => ({ path: '/api/lists/ops', body: { ops } });
 const doneAction = (itemId, stamp) => ({
@@ -320,6 +328,11 @@ export function listPlan(account, device) {
     WHERE i.list_id = ? AND i.deleted = 0 AND i.checked = 0
     ORDER BY s.id IS NULL, s.sort, i.sort, i.id`).all(listId);
 
+  const pins = db.prepare('SELECT * FROM list_pins WHERE device_id = ? AND profile_id = ? ORDER BY at').all(device.id, account.id);
+  // Pinned before its reminder time: on this phone the pin is the reminder.
+  const waits = (pin, i) => !!i.remind_at && i.remind_at > pin.at;
+  const pinned = new Map(pins.filter((p) => p.kind === 'item').map((p) => [p.target, p]));
+
   // Reminders stay in the plan after their time, until the item is checked
   // off: that keeps the notification up, and lets a phone that was off show
   // it late (the phone decides how late is too late).
@@ -328,23 +341,26 @@ export function listPlan(account, device) {
     const list = lists.get(i.list_id);
     const who = i.remind_who ? JSON.parse(i.remind_who) : {};
     if (!list || !(who.all || who.ids?.includes(account.id))) continue;
+    if (pinned.has(i.id) && waits(pinned.get(i.id), i)) continue;
     entries.push({
-      id: `remind-${i.id}`, at: i.remind_at, channel: 'reminders',
+      id: `remind-${i.id}`, at: i.remind_at, channel: i.remind_all_day ? 'pins' : 'reminders', quiet: !!i.remind_all_day,
       title: i.name, body: [i.note, list.name].filter(Boolean).join(' · '),
       actions: [doneAction(i.id, i.remind_at)],
       tap: { screen: 'list', list: list.id, item: i.id }
     });
   }
 
-  for (const pin of db.prepare('SELECT * FROM list_pins WHERE device_id = ? AND profile_id = ? ORDER BY at').all(device.id, account.id)) {
+  for (const pin of pins) {
     // Swiping a pin away unpins it.
     const dismiss = { post: listOps([{ id: `unpin-${pin.target}-${pin.at}`, t: 'pin.set', kind: pin.kind, target: pin.target, on: false }]) };
     if (pin.kind === 'item') {
       const i = itemRow(pin.target);
       const list = i && !i.deleted && !i.checked && lists.get(i.list_id);
       if (!list) continue;
+      const later = waits(pin, i);
       entries.push({
-        id: `pin-item-${i.id}`, at: null, ongoing: true, channel: 'pins',
+        id: `pin-item-${i.id}`, at: later ? i.remind_at : null, ongoing: true,
+        channel: later && !i.remind_all_day ? 'reminders' : 'pins', quiet: later ? !!i.remind_all_day : true,
         title: i.name, body: [i.note, list.name].filter(Boolean).join(' · '),
         actions: [doneAction(i.id, pin.at)], dismiss,
         tap: { screen: 'list', list: list.id, item: i.id }
@@ -354,7 +370,7 @@ export function listPlan(account, device) {
       if (!list) continue;
       const left = open(list.id);
       entries.push({
-        id: `pin-list-${list.id}`, at: null, ongoing: true, channel: 'pins',
+        id: `pin-list-${list.id}`, at: null, ongoing: true, channel: 'pins', quiet: true,
         title: list.name,
         body: left.length ? `${left.length} left: ${left.slice(0, 4).map((i) => i.name).join(', ')}${left.length > 4 ? '…' : ''}` : 'All done ✓',
         lines: left.slice(0, 8).map((i) => (i.note ? `${i.name} (${i.note})` : i.name)).concat(left.length > 8 ? [`+ ${left.length - 8} more`] : []),

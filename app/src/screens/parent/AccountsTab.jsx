@@ -68,7 +68,7 @@ export default function AccountsTab({ onAuthLost }) {
   const adults = accounts.filter((a) => a.isParent);
 
   const identity = (a) => (
-    <div className="row">
+    <div className="row wrap identity">
       <select value={a.emoji} onChange={(e) => update(a, { emoji: e.target.value })} className="emoji-select">
         {[...new Set([a.emoji, ...EMOJIS])].map((x) => <option key={x}>{x}</option>)}
       </select>
@@ -122,7 +122,7 @@ export default function AccountsTab({ onAuthLost }) {
           <button type="button" className={!draft.isParent ? 'on' : ''} onClick={() => setDraft({ ...draft, isParent: false, pin: '' })}>🧒 Kid</button>
           <button type="button" className={draft.isParent ? 'on' : ''} onClick={() => setDraft({ ...draft, isParent: true })}>🧑 Grown-up</button>
         </div>
-        <div className="row">
+        <div className="row wrap identity">
           <select value={draft.emoji} onChange={(e) => setDraft({ ...draft, emoji: e.target.value })} className="emoji-select">
             {EMOJIS.map((x) => <option key={x}>{x}</option>)}
           </select>

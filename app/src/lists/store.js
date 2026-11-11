@@ -94,7 +94,7 @@ function applyOp(v, op) {
         if (!list || !i.name) break;
         v.items.set(i.id, {
           id: i.id, list: i.list, section: i.section ?? null, name: i.name, note: i.note || '', sort: i.sort ?? op.at,
-          checked: false, checkedAt: null, remindAt: null, who: null
+          checked: false, checkedAt: null, remindAt: null, allDay: false, who: null
         });
         learn(v, list, i.name, i.section ?? null, true, op.at);
       } else {
@@ -113,7 +113,7 @@ function applyOp(v, op) {
       v.items.set(cur.id, { ...cur, checked: !!op.checked, checkedAt: op.checked ? op.at : null });
       if (op.checked) v.pins = v.pins.filter((p) => !(p.kind === 'item' && p.target === cur.id));
       else if (op.again) {
-        v.items.set(cur.id, { ...v.items.get(cur.id), remindAt: null, who: null });
+        v.items.set(cur.id, { ...v.items.get(cur.id), remindAt: null, allDay: false, who: null });
         learn(v, v.lists.get(cur.list), cur.name, null, true, op.at);
       }
       break;
@@ -126,7 +126,7 @@ function applyOp(v, op) {
       break;
     case 'item.remind': {
       const cur = v.items.get(op.item);
-      if (cur) v.items.set(cur.id, { ...cur, remindAt: op.when || null, who: op.when ? op.who || { ids: [v.me] } : null });
+      if (cur) v.items.set(cur.id, { ...cur, remindAt: op.when || null, allDay: !!(op.when && op.allDay), who: op.when ? op.who || { ids: [v.me] } : null });
       break;
     }
     case 'pin.set':
@@ -278,7 +278,10 @@ async function push(s) {
   s.batch = 200;
   const sent = new Set(batch.map((o) => o.id));
   s.outbox = s.outbox.filter((o) => !sent.has(o.id));
-  const refused = (data.results || []).find((r) => r.error);
+  // (A change from a notification button that no longer applies, like Done
+  // on something already deleted, isn't worth a message.)
+  const fromButtons = new Set(batch.filter((o) => o.button).map((o) => o.id));
+  const refused = (data.results || []).find((r) => r.error && !fromButtons.has(r.id));
   if (refused) s.notice = refused.error;
   merge(s.base, data);
   rebuild(s);
@@ -365,7 +368,7 @@ function planEntry(v, id) {
     if (!list || !pin) return null;
     const left = openItems(v, target);
     return {
-      id, at: null, ongoing: true, channel: 'pins', title: list.name,
+      id, at: null, ongoing: true, channel: 'pins', quiet: true, title: list.name,
       body: left.length ? `${left.length} left: ${left.slice(0, 4).map((i) => i.name).join(', ')}${left.length > 4 ? '…' : ''}` : 'All done ✓',
       lines: left.slice(0, 8).map((i) => (i.note ? `${i.name} (${i.note})` : i.name)).concat(left.length > 8 ? [`+ ${left.length - 8} more`] : []),
       dismiss: { post: listOps([{ id: `unpin-${target}-${pin.at}`, t: 'pin.set', kind: 'list', target, on: false }]) },
@@ -377,17 +380,25 @@ function planEntry(v, id) {
   if (!list || item.checked) return null;
   const body = [item.note, list.name].filter(Boolean).join(' · ');
   const tap = { screen: 'list', list: list.id, item: item.id };
+  const pin = v.pins.find((p) => p.kind === 'item' && p.target === target);
+  // Pinned before its reminder time: on this phone the pin is the reminder,
+  // and it stays away until then.
+  const later = pinWaits(v, item);
   if (what === 'pin-item') {
-    const pin = v.pins.find((p) => p.kind === 'item' && p.target === target);
     if (!pin) return null;
     return {
-      id, at: null, ongoing: true, channel: 'pins', title: item.name, body, actions: [doneAction(item.id, pin.at)],
+      id, at: later ? item.remindAt : null, ongoing: true,
+      channel: later && !item.allDay ? 'reminders' : 'pins', quiet: later ? !!item.allDay : true,
+      title: item.name, body, actions: [doneAction(item.id, pin.at)],
       dismiss: { post: listOps([{ id: `unpin-${target}-${pin.at}`, t: 'pin.set', kind: 'item', target, on: false }]) }, tap
     };
   }
-  if (what !== 'remind' || !item.remindAt || item.remindAt <= Date.now() - 30 * DAY) return null;
+  if (what !== 'remind' || !item.remindAt || item.remindAt <= Date.now() - 30 * DAY || later) return null;
   if (!(item.who?.all || item.who?.ids?.includes(v.me))) return null;
-  return { id, at: item.remindAt, channel: 'reminders', title: item.name, body, actions: [doneAction(item.id, item.remindAt)], tap };
+  return {
+    id, at: item.remindAt, channel: item.allDay ? 'pins' : 'reminders', quiet: !!item.allDay,
+    title: item.name, body, actions: [doneAction(item.id, item.remindAt)], tap
+  };
 }
 
 // Which notifications an op can change (looked up before it's applied).
@@ -405,7 +416,8 @@ function touches(v, op) {
     case 'item.put': item(op.item.id, op.item.list); break;
     case 'item.check': case 'item.remind': item(op.item); break;
     case 'items.del': op.items.forEach((x) => item(x)); break;
-    case 'pin.set': ids.push(`pin-${op.kind}-${op.target}`); break;
+    // (Pinning an item also decides whether its reminder shows by itself.)
+    case 'pin.set': ids.push(`pin-${op.kind}-${op.target}`, ...(op.kind === 'item' ? [`remind-${op.target}`] : [])); break;
     case 'list.put': wholeList(op.list.id); break;
     case 'list.del': wholeList(op.list); break;
     case 'section.put': if (op.section.list || v.sections.get(op.section.id)) ids.push(`pin-list-${op.section.list || v.sections.get(op.section.id).list}`); break;
@@ -445,18 +457,19 @@ async function planNow(s) {
   }
 }
 
-// Buttons tapped on notifications. The notification already tried to tell
-// the server; what didn't get through joins the outbox.
+// Buttons tapped on notifications. Their changes join the outbox, so they
+// show here straight away. Most were already sent by the notification
+// itself: the server knows those by their id and doesn't apply them twice.
 function takeEvents(events) {
   const s = session;
   if (!s) return;
   let added = false;
   for (const ev of events) {
-    if (ev.post?.path !== '/api/lists/ops' || ev.sent) continue;
+    if (ev.post?.path !== '/api/lists/ops') continue;
     for (const op of ev.post.body?.ops || []) {
       if (s.outbox.some((o) => o.id === op.id)) continue;
       for (const id of touches(s.view, op)) s.dirty.add(id);
-      s.outbox.push({ ...op, at: ev.at || Date.now() });
+      s.outbox.push({ ...op, at: ev.at || Date.now(), button: true });
       added = true;
     }
   }
@@ -529,6 +542,11 @@ export const sortedLists = (v) => [...v.lists.values()].sort(bySort);
 export const sectionsOf = (v, listId) => [...v.sections.values()].filter((s) => s.list === listId).sort(bySort);
 export const itemsOf = (v, listId) => [...v.items.values()].filter((i) => i.list === listId);
 export const isPinned = (v, kind, target) => v.pins.some((p) => p.kind === kind && p.target === target);
+// Pinned with a reminder that came after: the pin stays away until that time.
+export function pinWaits(v, item) {
+  const pin = v.pins.find((p) => p.kind === 'item' && p.target === item.id);
+  return !!pin && !!item.remindAt && item.remindAt > pin.at;
+}
 
 // Not yet checked, in the order the list shows them: by section, then
 // things with no section.
@@ -664,8 +682,9 @@ export const lists = {
   updateItem: (id, patch) => queue({ t: 'item.put', item: { id, ...patch } }),
   deleteItems: (ids) => ids.length && queue({ t: 'items.del', items: ids }),
   clearChecked: (listId) => lists.deleteItems(checkedItems(session.view, listId).map((i) => i.id)),
-  // when: a time in ms, or null to remove the reminder.
-  remind: (id, when, who) => queue({ t: 'item.remind', item: id, when: when || null, who: who || { ids: [session.me] } }),
+  // when: a time in ms, or null to remove the reminder. allDay: that whole
+  // day (when is the start of it).
+  remind: (id, when, who, allDay) => queue({ t: 'item.remind', item: id, when: when || null, allDay: !!(when && allDay), who: who || { ids: [session.me] } }),
   pin: (kind, target, on) => queue({ t: 'pin.set', kind, target, on: !!on }),
 
   addSection(listId, name) {

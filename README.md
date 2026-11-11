@@ -39,10 +39,11 @@ grown-ups' shared lists.
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
   Switching is in Settings.
-- **Grown-ups**: a home page with each kid's day, accounts, characters,
-  brushing rules and history, devices, and test modes for brushing and
-  building that save nothing. Everything except brushing also works in a
-  browser (the web app is served by the server itself).
+- **Grown-ups**: a home screen of buttons. **Lists** is there; **Kids Setup**
+  has each kid's day, then Characters, Brushing (rules and history),
+  Exercises and Test (brushing and building that save nothing). Accounts and
+  Devices are under the gear, in Settings. Everything except brushing also
+  works in a browser (the web app is served by the server itself).
 
 Later: calendar and daily reminders, contacts, meal plans and recipes, chores
 and allowance.
@@ -126,7 +127,7 @@ manager) and out of git.
 
 ## Adding characters
 
-Parent area → **Characters** → Add. Upload:
+Kids Setup → **Characters** → Add. Upload:
 
 1. **Pieces**: one `.glb` from Blender with each piece as its own object
    (the pieces are named after the objects), or one `.glb` per piece. All
@@ -178,7 +179,7 @@ pieces, and **Build** / **Dress up** opens it whenever pieces are waiting. A
 finished character's page plays its dances. Pieces on every character are
 kept, so a kid can switch and come back. The wait between pieces is per kid,
 so switching doesn't earn an extra one. Grown-ups can still set a kid's
-character in Accounts.
+character in Settings → Accounts.
 
 ### Each character's page
 
@@ -224,7 +225,7 @@ scenes" give a whole exercise its voice in one go. Changes save by themselves.
 
 ## Lists
 
-Grown-up area → **Lists**. Kids don't see them.
+The **Lists** button on a grown-up's home screen. Kids don't see them.
 
 - **Store lists** group things by section (Produce, Dairy & Eggs, …). A new
   one starts with a standard set of sections and a few hundred common
@@ -254,8 +255,13 @@ again; a note at the top says so meanwhile.
   too (under the list's ⋯) and shows what's left. Pins are per phone, come
   back after a restart, and go away if swiped off (Android 14 and later let
   you swipe them).
-- **At a time**: a notification with **Done** at that time, for you or for
-  the grown-ups you tick.
+- **When**: a notification with **Done** at a time, for you or for the
+  grown-ups you tick. **All day** means a day with no time: it's there,
+  with no sound, from the start of that day.
+- **Both**: pinned with a day or time, nothing shows until then; then it
+  shows up as the pin and stays. So "call them Monday" can be put in on
+  Sunday and stay out of the way until Monday. Moving the time later hides
+  it again until then.
 
 Done works from the notification without opening the app. Reminders are set
 as alarms on the phone itself, so they go off on time with no connection.
@@ -263,6 +269,14 @@ About every 15 minutes (as often as Android allows) the phone also checks the
 server in the background, which is how a reminder someone else set for you
 arrives while the app is closed. Android asks once for permission to show
 notifications.
+
+After the phone restarts, pins and alarms are put back straight away, before
+it has even been unlocked (only what to show is kept where Android can read
+it that early; the sign-in stays locked until the unlock, so a Done tapped
+before then is sent afterwards). Settings → **Reminders and pins on this
+phone** shows whether notifications are allowed, when the phone last heard
+from the server, and a short list of what the notification side did lately,
+which can be sent to the server (`data/notify-logs`) to work out a problem.
 
 How it fits together, for the curious: the phone sends each change as a small
 "op" and asks the server for everything after the last change it saw
