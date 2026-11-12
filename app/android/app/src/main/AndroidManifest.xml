@@ -64,6 +64,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
-    <!-- "From my phone's contacts": only the contact a grown-up picks is read -->
+    <!-- "From my phone's contacts": only the contact a grown-up picks is read;
+         "Save to my phone": only when a grown-up asks, and only adding or setting -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 </manifest>

@@ -791,6 +791,12 @@ input.line-text { font: inherit; padding: 4px 8px; }
 .con-edit-line input { flex: 1; min-width: 0; }
 .con-edit-line select { flex: 0 0 auto; }
 .con-edit-line .con-year { flex: 0 0 6em; }
+.con-phone-bar { gap: 10px; }
+.con-check-line { margin: 0; }
+.con-check-diff { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
+.con-check-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.con-check-choices .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; font-weight: 600; }
+.con-check-choices .btn small { font-weight: 800; opacity: 0.75; }
 .kid-page .con-row { padding: 14px 16px; }
 .kid-page .con-row-text b { font-size: 1.3rem; }
 .kid-page .con-row-phone { font-size: 1.15rem; color: var(--text); }

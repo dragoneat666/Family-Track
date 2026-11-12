@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Sheet } from '../lists/ui.jsx';
 import { phoneContacts } from './phone.js';
+import { PhoneCheck, AddToPhone } from './PhoneCheck.jsx';
 import {
   useContacts, currentContacts, refreshContacts, saveContact, deleteContact, birthdayText, dialable, initials, nameColor, matches,
   MONTHS, DAYS_IN, PHONE_LABELS, EMAIL_LABELS, CALENDAR_CHOICES
@@ -20,15 +21,20 @@ export default function ContactsScreen({ canEdit, onAuthLost }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(null); // contact id
   const [editing, setEditing] = useState(null); // a contact being made or changed
-  const [gone, setGone] = useState(new Set()); // kept up to date from this phone, but not in its contacts any more
+  // Linked to this phone: not in its contacts any more / different from them.
+  const [phone, setPhone] = useState({ gone: new Set(), differ: new Set() });
+  const [checking, setChecking] = useState(null); // { only } while Check with my phone is open
+  const [adding, setAdding] = useState(null); // a contact being added to this phone
+
+  // Fill in here what this phone's contacts have for linked contacts (quietly).
+  const quiet = () => {
+    const { data: d, offline: off } = currentContacts();
+    if (canEdit && phoneContacts.available && d && !off) phoneContacts.quiet(d.contacts).then(setPhone, () => {});
+  };
 
   useEffect(() => {
     const refresh = () => refreshContacts().catch((e) => e.status === 401 && onAuthLost?.());
-    // Then bring the ones this phone keeps up to date in line with its contacts.
-    refresh().then(() => {
-      const { data: d, offline: off } = currentContacts();
-      if (canEdit && phoneContacts.available && d && !off) phoneContacts.updateAll(d.contacts).then(setGone);
-    });
+    refresh().then(quiet);
     const onVisible = () => { if (!document.hidden) refresh(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -51,6 +57,16 @@ export default function ContactsScreen({ canEdit, onAuthLost }) {
         <input className="con-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Find someone" />
         {canEdit && <button className="btn primary" disabled={offline} onClick={() => setEditing(blank())}>+ Add</button>}
       </div>
+      {canEdit && phoneContacts.available && data.contacts.length > 0 && (
+        <div className="row wrap con-phone-bar">
+          <button className="btn" disabled={offline} onClick={() => setChecking({ only: null })}>🔄 Check with my phone</button>
+          {(phone.differ.size + phone.gone.size) > 0 && (
+            <span className="muted small">
+              {phone.differ.size + phone.gone.size} {phone.differ.size + phone.gone.size === 1 ? "contact doesn't" : "contacts don't"} match your phone
+            </span>
+          )}
+        </div>
+      )}
 
       <ul className="con-list">
         {shown.map((c) => (
@@ -72,11 +88,16 @@ export default function ContactsScreen({ canEdit, onAuthLost }) {
         )}
       </ul>
 
-      {opened && !editing && (
-        <ContactSheet c={opened} person={people.get(opened.profileId)} canEdit={canEdit} offline={offline} gone={gone.has(opened.id)}
-          onGone={(isGone) => setGone((g) => { const n = new Set(g); if (isGone) n.add(opened.id); else n.delete(opened.id); return n; })}
+      {opened && !editing && !checking && !adding && (
+        <ContactSheet c={opened} person={people.get(opened.profileId)} canEdit={canEdit} offline={offline}
+          gone={phone.gone.has(opened.id)} differs={phone.differ.has(opened.id)}
+          onCheck={() => setChecking({ only: [opened.id] })} onAddToPhone={() => setAdding(opened)}
           onClose={() => setOpen(null)} onEdit={() => setEditing(opened)} />
       )}
+      {checking && (
+        <PhoneCheck contacts={data.contacts} only={checking.only} onClose={() => { setChecking(null); quiet(); }} />
+      )}
+      {adding && <AddToPhone c={adding} onClose={() => { setAdding(null); quiet(); }} />}
       {editing && (
         <ContactEditor start={editing} people={data.people} contacts={data.contacts} offline={offline}
           onClose={() => setEditing(null)}
@@ -93,16 +114,18 @@ function Avatar({ c, person, big }) {
   return <span className={cls} style={{ background: nameColor(c.name) }}>{initials(c.name) || '?'}</span>;
 }
 
-function ContactSheet({ c, person, canEdit, offline, gone, onGone, onClose, onEdit }) {
-  const [updating, setUpdating] = useState('');
-  async function updateNow() {
-    setUpdating('…');
+function ContactSheet({ c, person, canEdit, offline, gone, differs, onCheck, onAddToPhone, onClose, onEdit }) {
+  const [error, setError] = useState('');
+  // It's already on this phone: pick it there, link it, and check them against each other.
+  async function linkFromPicker() {
+    setError('');
     try {
-      const r = await phoneContacts.update(c);
-      onGone(r === 'gone');
-      setUpdating(r === 'updated' ? 'Updated from your phone ✓' : r === 'same' ? 'Already the same as your phone ✓' : '');
+      const p = await phoneContacts.pick();
+      if (!p) return;
+      await phoneContacts.link(c, p.key);
+      onCheck();
     } catch (e) {
-      setUpdating(e.message);
+      setError(e.message);
     }
   }
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address.replace(/\n/g, ', '))}`;
@@ -155,13 +178,25 @@ function ContactSheet({ c, person, canEdit, offline, gone, onGone, onClose, onEd
       {c.grownupsOnly && <p className="muted small">🔒 Only grown-ups see this contact.</p>}
       {canEdit && c.phoneSync === 'here' && (
         <div className="stack tight">
-          <p className="muted small">🔄 Kept up to date from this phone's contacts (not the name).</p>
-          {gone && <p className="sync-note">This phone's contacts don't have them any more (or Family Track isn't allowed to see contacts). Pick them again in ✏️ Change, or stop keeping them up to date.</p>}
-          {phoneContacts.available && <button className="btn" disabled={offline || updating === '…'} onClick={updateNow}>🔄 Update from my phone now</button>}
-          {updating && updating !== '…' && <p className="muted small">{updating}</p>}
+          <p className="muted small">🔗 Linked to this phone's contacts{c.otherPhones ? ` (and ${c.otherPhones === 1 ? 'another phone' : `${c.otherPhones} other phones`})` : ''}.</p>
+          {gone && <p className="sync-note">This phone's contacts don't have them any more (or Family Track isn't allowed to see contacts). Check with my phone to unlink them.</p>}
+          {!gone && differs && <p className="sync-note">Something here and on your phone doesn't match.</p>}
+          {phoneContacts.available && <button className="btn" disabled={offline} onClick={onCheck}>🔄 Check with my phone</button>}
         </div>
       )}
-      {canEdit && c.phoneSync === 'elsewhere' && <p className="muted small">🔄 Kept up to date from another grown-up's phone.</p>}
+      {canEdit && c.phoneSync !== 'here' && phoneContacts.available && (
+        <div className="stack tight">
+          {c.phoneSync === 'elsewhere' && <p className="muted small">🔗 Linked to {c.otherPhones === 1 ? "another grown-up's phone" : `${c.otherPhones} other phones`}, not this one.</p>}
+          <div className="row wrap">
+            <button className="btn" disabled={offline} onClick={onAddToPhone}>📲 Add to my phone's contacts</button>
+            <button className="btn" disabled={offline} onClick={linkFromPicker}>🔗 They're already on my phone</button>
+          </div>
+        </div>
+      )}
+      {canEdit && c.phoneSync === 'elsewhere' && !phoneContacts.available && (
+        <p className="muted small">🔗 Linked to {c.otherPhones === 1 ? "a grown-up's phone" : `${c.otherPhones} grown-ups' phones`}.</p>
+      )}
+      {error && <p className="error">{error}</p>}
       {!c.phones.length && !c.address && !c.birthday && !(c.emails || []).length && <p className="muted">Nothing else saved for them yet.</p>}
 
       {canEdit && <button className="btn" disabled={offline} onClick={onEdit}>✏️ Change</button>}
@@ -247,12 +282,11 @@ function ContactEditor({ start, people, contacts, offline, onClose, onSaved, onD
         <input value={c.name} onChange={(e) => set({ name: e.target.value })} placeholder="Grandma Rose" maxLength={80} />
       </label>
       {sameName && <p className="muted small">There's already a contact called {sameName.name}.</p>}
-      {(start.phoneSync || c.phoneKey) && (
+      {c.phoneKey && (
         <label className="inline check">
-          <input type="checkbox" checked={c.phoneSync === 'here' || c.phoneSync === 'elsewhere'}
-            onChange={(e) => set({ phoneSync: !e.target.checked ? 'off' : c.phoneKey ? 'here' : start.phoneSync })} />
-          <span>Keep up to date from {c.phoneKey ? 'my' : "another grown-up's"} phone's contacts
-            <span className="muted small"> (numbers, emails, address and birthday; the names here stay yours)</span></span>
+          <input type="checkbox" checked={c.phoneSync === 'here'} onChange={(e) => set({ phoneSync: e.target.checked ? 'here' : 'off' })} />
+          <span>Linked to my phone's contacts
+            <span className="muted small"> (kept in step: numbers, emails, address and birthday; the names stay as they are on each side)</span></span>
         </label>
       )}
       <label>

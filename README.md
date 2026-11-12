@@ -39,8 +39,9 @@ grown-ups' shared lists.
   **My Week**. More under [My Day and My Week](#my-day-and-my-week).
 - **Contacts**: the family's phone numbers, emails, addresses and
   birthdays. Grown-ups can call, text, email or map from there, and fill one
-  in from the phone's own contacts (and keep it up to date from there);
-  kids can look numbers up. Birthdays go on the calendar by themselves, for
+  in from the phone's own contacts; each grown-up's phone can stay linked
+  to its own contacts (both ways, names untouched); kids can look numbers
+  up. Birthdays go on the calendar by themselves, for
   everyone, just the kids, just grown-ups or nobody. More under
   [Contacts](#contacts).
 - **Lists**: the grown-ups' shared lists, one per store plus anything else
@@ -419,16 +420,34 @@ emails, an address, a birthday (the year is optional), a note, their Family
 Track account if they have one, and **Grown-ups only** to keep them from
 the kids.
 
-In the app, **From my phone's contacts** opens the phone's own contact
-picker and fills in the one picked; Android asks once whether Family Track
-may see contacts, and only the contact picked is read. The name can be
-changed before saving (the phone's "Beautiful Wife" can be "Abby" here).
-**Keep up to date from my phone's contacts** (ticked when one is picked):
-each time Contacts opens on that phone, the contact is read again and
-changed numbers, emails, address and birthday are saved (an address or
-birthday the phone doesn't have stays); the names are never changed. There's
-also **🔄 Update from my phone now** on the contact. If the phone's contact
-is deleted, it says so.
+### Contacts and your phone's contacts (the app)
+
+- **From my phone's contacts** (in the editor) opens the phone's own
+  contact picker and fills in the one picked. The name can be changed
+  before saving: the phone's "Beautiful Wife" can be "Abby" here.
+- Each grown-up's phone can be **linked** to its own contact for someone
+  (picked, added, or found), so the same family contact can be linked to
+  two grown-ups' phones. Names are never changed either way.
+- When Contacts opens, linked contacts are read again and anything the
+  phone has that Family Track doesn't (a number, an email, the address,
+  the birthday or its year) is filled in here. Nothing is written to the
+  phone then; it says how many contacts don't match.
+- **🔄 Check with my phone** (for everyone at the top, or one contact):
+  fills in what either side is missing, saving to the phone too (numbers
+  and emails are added, never taken away); where both have an address or a
+  birthday and they differ, it shows both to pick which is right. It also
+  looks up family contacts that aren't linked by their numbers (after
+  switching phones, or for a contact another grown-up added), to link them,
+  and lists linked ones that are no longer on the phone, to unlink.
+- **📲 Add to my phone's contacts**: puts a family contact in the phone's
+  contacts (its Google account, if it has one, so it goes to Google
+  Contacts as usual) under the name you choose, and links it.
+- **🔗 They're already on my phone**: pick them in the phone's contacts to
+  link them, then it checks the two.
+
+Android asks once to see contacts, and once more to change them. Only
+contacts picked, linked or looked up by number are read, and the phone's
+contacts are only changed when a grown-up asks.
 
 A contact's **birthday goes on the calendar** by itself, every year. **On
 the calendar for**: **Everyone** (the default, with a reminder to grown-ups

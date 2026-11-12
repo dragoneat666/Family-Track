@@ -36,13 +36,17 @@ import java.util.concurrent.Executors;
  * the phone's own contact picker opens, and only the one contact picked is
  * read (name, numbers, emails, address, birthday) and handed to the app,
  * with its lookup key. read(key) reads that same contact again, for a
- * contact the family keeps up to date from this phone; it never asks for
- * permission itself. Nothing is read in the background and nothing is sent
- * anywhere from here.
+ * contact linked to this phone; it never asks for permission itself.
+ * write(...) saves to the phone's contacts when a grown-up asks (see
+ * ContactWriter), asking once for permission to change contacts. Nothing is
+ * read or written in the background and nothing is sent anywhere from here.
  */
 @CapacitorPlugin(
     name = "FamilyContacts",
-    permissions = { @Permission(alias = "contacts", strings = { Manifest.permission.READ_CONTACTS }) }
+    permissions = {
+        @Permission(alias = "contacts", strings = { Manifest.permission.READ_CONTACTS }),
+        @Permission(alias = "write", strings = { Manifest.permission.WRITE_CONTACTS })
+    }
 )
 public class ContactsPlugin extends Plugin {
     private static final String TAG = "FamilyContacts";
@@ -85,6 +89,75 @@ public class ContactsPlugin extends Plugin {
             } catch (Exception e) {
                 Log.w(TAG, "reading a contact again", e);
                 call.reject("Couldn't read that contact");
+            }
+        });
+    }
+
+    /**
+     * The phone's contact with this number, if there is one: { found, key, name }.
+     * Only that number is looked up (to find a family contact on a new or
+     * another phone); never asks for permission itself.
+     */
+    @PluginMethod
+    public void findByNumber(PluginCall call) {
+        String number = call.getString("number");
+        if (number == null || number.trim().isEmpty() || getPermissionState("contacts") != PermissionState.GRANTED) {
+            JSObject none = new JSObject();
+            none.put("found", false);
+            call.resolve(none);
+            return;
+        }
+        io.execute(() -> {
+            JSObject out = new JSObject();
+            out.put("found", false);
+            Uri uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number.trim()));
+            String[] cols = { ContactsContract.PhoneLookup.LOOKUP_KEY, ContactsContract.PhoneLookup.DISPLAY_NAME };
+            try (Cursor c = getContext().getContentResolver().query(uri, cols, null, null, null)) {
+                if (c != null && c.moveToFirst() && c.getString(0) != null) {
+                    out.put("found", true);
+                    out.put("key", c.getString(0));
+                    out.put("name", c.getString(1) == null ? "" : c.getString(1));
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "looking up a number", e);
+            }
+            call.resolve(out);
+        });
+    }
+
+    /**
+     * Save to the phone's contacts: { key } of a contact on this phone, or
+     * { name } for a new one; addPhones, addEmails, and address / birthday to
+     * set (left out = as they are). Resolves { key, account }.
+     */
+    @PluginMethod
+    public void write(PluginCall call) {
+        if (getPermissionState("contacts") != PermissionState.GRANTED || getPermissionState("write") != PermissionState.GRANTED) {
+            requestPermissionForAliases(new String[] { "contacts", "write" }, call, "writePermissionDone");
+            return;
+        }
+        doWrite(call);
+    }
+
+    @PermissionCallback
+    private void writePermissionDone(PluginCall call) {
+        if (getPermissionState("contacts") == PermissionState.GRANTED && getPermissionState("write") == PermissionState.GRANTED) doWrite(call);
+        else call.reject("Family Track isn't allowed to change this phone's contacts. You can allow it in the phone's settings for the app.", "denied");
+    }
+
+    private void doWrite(PluginCall call) {
+        io.execute(() -> {
+            try {
+                ContactWriter.Result r = ContactWriter.write(getContext(), call.getString("key"), call.getString("name"),
+                    call.getArray("addPhones"), call.getArray("addEmails"), call.getString("address"), call.getString("birthday"));
+                JSObject out = new JSObject();
+                out.put("key", r.key == null ? "" : r.key);
+                out.put("account", r.account);
+                call.resolve(out);
+            } catch (Exception e) {
+                Log.w(TAG, "writing a contact", e);
+                // (Our own messages are IllegalStateExceptions; anything else gets a plain one.)
+                call.reject(e instanceof IllegalStateException ? e.getMessage() : "Couldn't save to this phone's contacts");
             }
         });
     }

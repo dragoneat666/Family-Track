@@ -12,9 +12,10 @@ import { httpError, requireAdult } from './auth.js';
 // ups' only, or none. Changing the birthday here changes that event, and
 // changing the event's name or date on the calendar changes the contact.
 //
-// A contact filled in from a phone's contacts can be kept up to date from
-// there: that phone reads the contact again when Contacts opens and sends
-// what changed (never the names, which are the family's own).
+// A contact can be linked to a grown-up's phone's contacts (each phone its
+// own link, contact_links). That phone then keeps the two in step: it fills
+// in what either side is missing and asks about what differs. Names are
+// never changed either way: they're the family's own.
 
 const MAX_PHONES = 6;
 const MAX_EMAILS = 4;
@@ -123,15 +124,26 @@ export function birthdayDeleted(contactId) {
 export const kidsNames = () => new Map(db.prepare("SELECT id, kids_name FROM contacts WHERE kids_name != ''").all()
   .map((c) => [c.id, c.kids_name]));
 
-const toContact = (c, adult, known, deviceId) => ({
+// contact id -> Map(device id -> phone key)
+function links() {
+  const out = new Map();
+  for (const l of db.prepare('SELECT * FROM contact_links').all()) {
+    if (!out.has(l.contact_id)) out.set(l.contact_id, new Map());
+    out.get(l.contact_id).set(l.device_id, l.phone_key);
+  }
+  return out;
+}
+
+const toContact = (c, adult, known, deviceId, linked) => ({
   id: c.id, name: adult ? c.name : c.kids_name || c.name, relation: c.relation, phones: c.phones, address: c.address,
   birthday: c.birthday, birthYear: c.birth_year, profileId: known.has(c.profile_id) ? c.profile_id : null,
   grownupsOnly: !!c.grownups_only,
   ...(adult ? {
     kidsName: c.kids_name, emails: c.emails, note: c.note, calendar: c.calendar, changedAt: c.changed_at,
-    // Kept up to date from a phone's contacts: this device's (with its key), or another one's.
-    phoneSync: c.phone_key ? (c.phone_device === deviceId ? 'here' : 'elsewhere') : null,
-    ...(c.phone_key && c.phone_device === deviceId ? { phoneKey: c.phone_key } : {})
+    // Linked to this device's contacts (with its key), and/or other phones'.
+    phoneSync: linked?.has(deviceId) ? 'here' : linked?.size ? 'elsewhere' : null,
+    otherPhones: [...(linked?.keys() || [])].filter((d) => d !== deviceId).length,
+    ...(linked?.has(deviceId) ? { phoneKey: linked.get(deviceId) } : {})
   } : {})
 });
 
@@ -139,9 +151,10 @@ function everything(account, device) {
   const adult = isAdult(account);
   const ps = people();
   const known = new Set(ps.map((p) => p.id));
+  const linked = adult ? links() : new Map();
   const contacts = db.prepare('SELECT * FROM contacts').all().map(parse)
     .filter((c) => adult || !c.grownups_only)
-    .map((c) => toContact(c, adult, known, device?.id))
+    .map((c) => toContact(c, adult, known, device?.id, linked.get(c.id)))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   return { contacts, people: ps };
 }
@@ -153,14 +166,17 @@ contactsRouter.get('/', (req, res) => res.json(everything(req.account, req.devic
 const row = (c) => [c.name, c.relation, c.kidsName, JSON.stringify(c.phones), JSON.stringify(c.emails), c.address, c.birthday,
   c.birthYear, c.note, c.profileId, c.grownupsOnly ? 1 : 0, c.calendar];
 
-// Keeping it up to date from a phone: { phoneSync: true, phoneKey } from the
-// phone that picked it (that phone then does the updating), phoneSync false
-// to stop. Saved from anywhere else, it stays as it was.
-function phoneLink(b, old, device) {
-  if (b.phoneSync === false) return [null, null];
-  const key = typeof b.phoneKey === 'string' ? b.phoneKey.slice(0, 500) : '';
-  if (key && b.phoneSync && device) return [key, device.id];
-  return [old?.phone_key ?? null, old?.phone_device ?? null];
+// This phone's link: { phoneSync: true, phoneKey } links it (or moves the
+// link to another of the phone's contacts), phoneSync false unlinks it.
+// Left out, it stays as it was. Other phones' links aren't touched.
+function phoneLink(b, contactId, device) {
+  if (!device) return;
+  if (b.phoneSync === false) {
+    db.prepare('DELETE FROM contact_links WHERE contact_id = ? AND device_id = ?').run(contactId, device.id);
+  } else if (b.phoneSync && typeof b.phoneKey === 'string' && b.phoneKey) {
+    db.prepare(`INSERT INTO contact_links (contact_id, device_id, phone_key) VALUES (?, ?, ?)
+      ON CONFLICT (contact_id, device_id) DO UPDATE SET phone_key = excluded.phone_key`).run(contactId, device.id, b.phoneKey.slice(0, 500));
+  }
 }
 
 contactsRouter.post('/', requireAdult, (req, res) => {
@@ -169,9 +185,10 @@ contactsRouter.post('/', requireAdult, (req, res) => {
   let id;
   db.transaction(() => {
     id = Number(db.prepare(`INSERT INTO contacts (name, relation, kids_name, phones, emails, address, birthday, birth_year, note,
-      profile_id, grownups_only, calendar, phone_key, phone_device, created_by, created_at, changed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(...row(c), ...phoneLink(req.body, null, req.device), req.account.id, now, now).lastInsertRowid);
+      profile_id, grownups_only, calendar, created_by, created_at, changed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(...row(c), req.account.id, now, now).lastInsertRowid);
+    phoneLink(req.body, id, req.device);
     syncBirthday(contactRow(id), req.account.id);
   })();
   res.json({ ok: true, id, ...everything(req.account, req.device) });
@@ -183,8 +200,9 @@ contactsRouter.put('/:id', requireAdult, (req, res) => {
   const c = clean(req.body);
   db.transaction(() => {
     db.prepare(`UPDATE contacts SET name = ?, relation = ?, kids_name = ?, phones = ?, emails = ?, address = ?, birthday = ?,
-      birth_year = ?, note = ?, profile_id = ?, grownups_only = ?, calendar = ?, phone_key = ?, phone_device = ?, changed_at = ?
-      WHERE id = ?`).run(...row(c), ...phoneLink(req.body, old, req.device), Date.now(), old.id);
+      birth_year = ?, note = ?, profile_id = ?, grownups_only = ?, calendar = ?, changed_at = ?
+      WHERE id = ?`).run(...row(c), Date.now(), old.id);
+    phoneLink(req.body, old.id, req.device);
     syncBirthday(contactRow(old.id), req.account.id);
   })();
   res.json({ ok: true, id: old.id, ...everything(req.account, req.device) });
@@ -194,6 +212,7 @@ contactsRouter.delete('/:id', requireAdult, (req, res) => {
   const id = Number(req.params.id);
   db.transaction(() => {
     syncBirthday({ id, birthday: null });
+    db.prepare('DELETE FROM contact_links WHERE contact_id = ?').run(id);
     db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
   })();
   res.json({ ok: true, ...everything(req.account, req.device) });

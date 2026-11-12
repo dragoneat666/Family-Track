@@ -432,6 +432,20 @@ const MIGRATIONS = [
   );
   ALTER TABLE events ADD COLUMN contact_id INTEGER;
   ALTER TABLE events ADD COLUMN kids_only INTEGER NOT NULL DEFAULT 0;
+  `,
+  // Which phones keep a contact in step with their own contacts: one link
+  // per grown-up's phone (device), with that phone's lookup key for it.
+  // (Replaces contacts.phone_key / phone_device, which held just one.)
+  `
+  CREATE TABLE contact_links (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    device_id INTEGER NOT NULL,
+    phone_key TEXT NOT NULL,
+    PRIMARY KEY (contact_id, device_id)
+  );
+  INSERT INTO contact_links (contact_id, device_id, phone_key)
+    SELECT id, phone_device, phone_key FROM contacts WHERE phone_key IS NOT NULL AND phone_device IS NOT NULL;
+  UPDATE contacts SET phone_key = NULL, phone_device = NULL;
   `
 ];
 
