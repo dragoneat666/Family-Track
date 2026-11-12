@@ -4,7 +4,7 @@ import { preloadTracker } from '../brush/tracker.js';
 import UpdateBanner from '../UpdateBanner.jsx';
 import { MyDayCard } from '../kids/MyDay.jsx';
 
-export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExercises, onWeek, onSettings }) {
+export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExercises, onWeek, onContacts, onSettings }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
 
@@ -24,6 +24,7 @@ export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExe
       <header className="kid-header">
         <span className="avatar">{profile.emoji}</span>
         <h1>Hi {profile.name}!</h1>
+        {onContacts && <button className="btn kid-contacts" onClick={onContacts} title="Contacts">📇</button>}
         <button className="btn gear" onClick={onSettings} title="Settings">⚙️</button>
       </header>
 

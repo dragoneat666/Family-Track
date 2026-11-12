@@ -37,6 +37,10 @@ grown-ups' shared lists.
 - **My Day** (kids): a card on each kid's home screen with today's things
   and their reminders (with **Done**), and what's on tomorrow; tap it for
   **My Week**. More under [My Day and My Week](#my-day-and-my-week).
+- **Contacts**: the family's phone numbers, emails, addresses and
+  birthdays. Grown-ups can call, text, email or map from there, and fill one
+  in from the phone's own contacts; kids can look numbers up. A birthday
+  goes on the calendar by itself. More under [Contacts](#contacts).
 - **Lists**: the grown-ups' shared lists, one per store plus anything else
   (to-dos, packing). Store lists are sorted by section in the order you walk
   that store and suggest groceries as you type; anything can be pinned to the
@@ -50,7 +54,7 @@ grown-ups' shared lists.
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
   Switching is in Settings.
-- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists** and **Reminders** are there; **Kids Setup**
+- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists**, **Reminders** and **Contacts** are there; **Kids Setup**
   has each kid's day, then Characters, Brushing (rules and history),
   Exercises and Test (brushing and building that save nothing). Accounts and
   Devices are under the gear, in Settings. Everything except brushing also
@@ -58,7 +62,7 @@ grown-ups' shared lists.
 - **Dark mode**: the app and the web app follow the phone's or computer's
   light/dark setting.
 
-Later: contacts, meal plans and recipes, chores and allowance.
+Later: meal plans and recipes, a family tree, chores and allowance.
 
 ## Privacy
 
@@ -395,6 +399,31 @@ Tap it for **My Week**: the next seven days, today first (outlined), with
 "Nothing planned" on empty days and weekends tinted. Both refresh every few
 minutes and keep the last answer on the tablet, so they still show with no
 server in reach.
+
+## Contacts
+
+The **Contacts** button on a grown-up's home screen: everyone in A to Z
+order, with a search box (a name, who they are, or part of a number). Tap
+someone for their numbers (📞 Call and 💬 Text), emails, address (🗺️ Map),
+birthday and note.
+
+A contact has a name, who they are ("Mom's mom", "the kids' dentist"), up
+to six phone numbers and four emails, an address, a birthday (the year is
+optional), a note, their Family Track account if they have one, and
+**Grown-ups only** to keep them from the kids. In the app, **From my
+phone's contacts** opens the phone's own contact picker and fills in the
+one picked; Android asks once whether Family Track may see contacts, and
+only the contact picked is read.
+
+A contact's **birthday goes on the calendar** by itself, every year, with a
+reminder the evening before (change the reminders on the calendar).
+Changing the name or birthday on either side changes the other; deleting
+the birthday on the calendar leaves the contact without one, and deleting
+the contact takes the birthday away.
+
+**Kids** get a 📇 button at the top of their home screen to look numbers
+up: no calling or texting from there, and no emails, notes or grown-ups-only
+contacts.
 
 ## Developing
 

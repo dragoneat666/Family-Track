@@ -3,6 +3,7 @@ import { Sheet } from '../lists/ui.jsx';
 import { timeText, whoText } from '../reminders/data.js';
 import EventEditor, { newEvent } from './EventEditor.jsx';
 import { holidaysBetween } from './holidays.js';
+import { refreshContacts } from '../contacts/data.js';
 import {
   useCalendar, refreshCalendar, fetchDays, deleteEvent, changeDate,
   todayDay, addDays, fromDay, daysBetween, monthStart, addMonths, dayTitle, shortDay, whenText,
@@ -347,6 +348,7 @@ function EventSheet({ it, ev, people, offline, today, onClose, onEdit, onEditDat
           <span>⏰ {ev.remind.map((m) => remindText(m, it.allDay)).join(', ')} · to {whoText(ev.remindWho, adults)}</span>
         )}
         {ev.grownupsOnly && <span>🔒 Grown-ups only: the kids don't see it</span>}
+        {ev.contactId && <span>📇 From Contacts: changing the name or date here changes the contact too</span>}
       </div>
       {error && <p className="error">{error}</p>}
       {offline && <p className="sync-note">Can't reach the server, so this can't be changed right now.</p>}
@@ -366,7 +368,11 @@ function EventSheet({ it, ev, people, offline, today, onClose, onEdit, onEditDat
       )}
       <button
         className="btn danger" disabled={busy || offline}
-        onClick={() => act(() => deleteEvent(ev.id), repeats ? `Delete every date of "${ev.title}"?` : `Delete "${eventTitle(ev, it)}"?`)}
+        onClick={() => act(
+          () => deleteEvent(ev.id).then(() => ev.contactId && refreshContacts().catch(() => {})),
+          ev.contactId ? `Take ${ev.title}'s birthday off the calendar? Their contact stays, without a birthday.`
+            : repeats ? `Delete every date of "${ev.title}"?` : `Delete "${eventTitle(ev, it)}"?`
+        )}
       >
         {repeats ? 'Delete all of them' : 'Delete'}
       </button>

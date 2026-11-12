@@ -7,9 +7,10 @@ import Build from './Build.jsx';
 import { Characters, CharacterDetail } from './Characters.jsx';
 import Exercises from '../exercises/Exercises.jsx';
 import { MyWeek } from '../kids/MyDay.jsx';
+import ContactsScreen from '../contacts/ContactsScreen.jsx';
 
 // A kid's screens: home (with My Day), brushing, building, exercises, the
-// Characters screen and My Week. Used for real kids and for the test kid in the parent area (top =
+// Characters screen, My Week and Contacts (to look numbers up). Used for real kids and for the test kid in the parent area (top =
 // anything to show above the home screen).
 export default function KidArea({ profile, onSettings, top }) {
   const [screen, setScreen] = useState({ name: 'home' });
@@ -41,6 +42,16 @@ export default function KidArea({ profile, onSettings, top }) {
       return <Exercises profile={profile} onExit={home} />;
     case 'week':
       return <MyWeek profile={profile} onExit={home} />;
+    case 'contacts':
+      return (
+        <div className="kid-page" style={{ '--c': profile.color }}>
+          <header className="kid-page-header">
+            <button data-back className="btn" onClick={home}>← Back</button>
+            <h1>📇 Contacts</h1>
+          </header>
+          <ContactsScreen canEdit={false} />
+        </div>
+      );
     case 'characters':
       return <Characters profile={profile} onExit={home} onOpen={(id) => go('character', { characterId: id })} />;
     case 'character':
@@ -63,6 +74,7 @@ export default function KidArea({ profile, onSettings, top }) {
             onCharacters={() => go('characters')}
             onExercises={() => go('exercises')}
             onWeek={() => go('week')}
+            onContacts={() => go('contacts')}
             onSettings={onSettings}
           />
         </>

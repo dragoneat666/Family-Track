@@ -20,6 +20,7 @@ import { pieceName, nextStep, stepLabel } from './steps.js';
 import { listsRouter, listPlan, dropPrivateLists } from './lists.js';
 import { remindersRouter, reminderPlan } from './reminders.js';
 import { calendarRouter, calendarPlan } from './calendar.js';
+import { contactsRouter } from './contacts.js';
 import { startBackups } from './backup.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
@@ -159,11 +160,12 @@ app.put('/api/me/pin', requireAdult, (req, res) => {
 
 app.get('/api/settings', (req, res) => res.json(getSettings()));
 
-// ---------- lists, reminders, calendar & notifications ----------
+// ---------- lists, reminders, calendar, contacts & notifications ----------
 
 app.use('/api/lists', requireAdult, listsRouter);
 app.use('/api/reminders', remindersRouter);
 app.use('/api/calendar', calendarRouter);
+app.use('/api/contacts', contactsRouter);
 
 // Everything this phone should be showing or have scheduled as Android
 // notifications for whoever is signed in on it. The app fetches it whenever

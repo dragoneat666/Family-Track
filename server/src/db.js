@@ -397,6 +397,31 @@ const MIGRATIONS = [
     sched_at INTEGER NOT NULL,
     PRIMARY KEY (event_id, occ)
   );
+  `,
+  // The family's contacts (mostly family). birthday is 'MM-DD' (birth_year
+  // if known); a contact with a birthday has a birthday event on the
+  // calendar (events.contact_id), kept in step both ways.
+  //   phones     JSON [{ label, number }]
+  //   emails     JSON [{ label, address }]
+  //   profile_id this person's Family Track account, if they have one
+  `
+  CREATE TABLE contacts (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    relation TEXT NOT NULL DEFAULT '',
+    phones TEXT NOT NULL DEFAULT '[]',
+    emails TEXT NOT NULL DEFAULT '[]',
+    address TEXT NOT NULL DEFAULT '',
+    birthday TEXT,
+    birth_year INTEGER,
+    note TEXT NOT NULL DEFAULT '',
+    profile_id INTEGER,
+    grownups_only INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER,
+    created_at INTEGER NOT NULL,
+    changed_at INTEGER NOT NULL
+  );
+  ALTER TABLE events ADD COLUMN contact_id INTEGER;
   `
 ];
 

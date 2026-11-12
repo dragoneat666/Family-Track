@@ -15,6 +15,8 @@ import RemindersScreen from '../../reminders/RemindersScreen.jsx';
 import { useReminders, refreshReminders, todayNote } from '../../reminders/data.js';
 import CalendarScreen from '../../calendar/CalendarScreen.jsx';
 import { useCalendar, refreshCalendar, nextNote } from '../../calendar/data.js';
+import ContactsScreen from '../../contacts/ContactsScreen.jsx';
+import { useContacts, refreshContacts } from '../../contacts/data.js';
 
 // Every screen a grown-up can open from a button. `under` is where its Back
 // button goes: Home has the family's things, Kids Setup has what the kids'
@@ -22,6 +24,7 @@ import { useCalendar, refreshCalendar, nextNote } from '../../calendar/data.js';
 const SCREENS = {
   lists: { emoji: '🛒', title: 'Lists', under: 'home' },
   reminders: { emoji: '⏰', title: 'Reminders', under: 'home' },
+  contacts: { emoji: '📇', title: 'Contacts', under: 'home' },
   kids: { emoji: '🧒', title: 'Kids Setup', under: 'home' },
   characters: { emoji: '🤖', title: 'Characters', under: 'kids', note: 'What the kids build and dress up' },
   brushing: { emoji: '🪥', title: 'Brushing', under: 'kids', note: 'Rules, history and each kid’s setting' },
@@ -93,6 +96,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
       <main className="parent-main">
         {screen === 'lists' && <ListsTab openList={openList} />}
         {screen === 'reminders' && <RemindersScreen account={account} onAuthLost={onAuthLost} />}
+        {screen === 'contacts' && <ContactsScreen canEdit onAuthLost={onAuthLost} />}
         {screen === 'kids' && (
           <div className="stack">
             <OverviewTab onAuthLost={onAuthLost} />
@@ -114,11 +118,13 @@ function Home({ open, openCalendar }) {
   const v = useLists();
   const reminders = useReminders();
   const calendar = useCalendar();
+  const contacts = useContacts();
   const [kids, setKids] = useState(null);
   useEffect(() => {
     api.get('/api/parent/overview').then(setKids).catch(() => { /* no server right now: the button still works */ });
     refreshReminders().catch(() => {});
     refreshCalendar().catch(() => {});
+    refreshContacts().catch(() => {});
   }, []);
 
   const left = [...v.items.values()].filter((i) => !i.checked).length;
@@ -131,6 +137,8 @@ function Home({ open, openCalendar }) {
         <Tile tone="lists" emoji="🛒" title="Lists" onClick={() => open('lists')}
           note={v.ready ? (left ? `${left} ${left === 1 ? 'thing' : 'things'} left` : 'Nothing left') : ''} />
         <Tile tone="reminders" emoji="⏰" title="Reminders" onClick={() => open('reminders')} note={todayNote(reminders.data)} />
+        <Tile tone="contacts" emoji="📇" title="Contacts" onClick={() => open('contacts')}
+          note={contacts.data?.contacts.length ? `${contacts.data.contacts.length} ${contacts.data.contacts.length === 1 ? 'person' : 'people'}` : ''} />
         <Tile tone="kids" emoji="🧒" title="Kids Setup" onClick={() => open('kids')}
           note={kids?.length ? `🪥 ${brushed} of ${kids.length} brushed today` : ''} />
       </div>

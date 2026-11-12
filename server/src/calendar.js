@@ -2,6 +2,7 @@ import express from 'express';
 import { db } from './db.js';
 import { httpError, requireAdult } from './auth.js';
 import { gets, timeText } from './reminders.js';
+import { birthdayChanged, birthdayDeleted } from './contacts.js';
 
 // The family calendar: appointments, birthdays, things that repeat (therapy
 // every other week, dance every week). Grown-ups add and change events;
@@ -201,7 +202,7 @@ export function calendarPlan(account) {
 const toEvent = (e, adult) => ({
   id: e.id, kind: e.kind, title: e.title, note: e.note, place: e.place, allDay: !!e.all_day,
   startDay: e.start_day, startTime: e.start_time, endDay: e.end_day, endTime: e.end_time,
-  repeat: e.repeat, people: e.people, grownupsOnly: !!e.grownups_only, birthYear: e.birth_year,
+  repeat: e.repeat, people: e.people, grownupsOnly: !!e.grownups_only, birthYear: e.birth_year, contactId: e.contact_id ?? null,
   ...(adult ? { remind: e.remind, remindWho: e.remind_who, createdBy: e.created_by } : {})
 });
 const people = () => db.prepare('SELECT * FROM profiles WHERE is_test = 0 ORDER BY is_parent DESC, sort, id').all()
@@ -312,12 +313,16 @@ calendarRouter.put('/:id', requireAdult, (req, res) => {
     if (old.start_day !== e.startDay || JSON.stringify(old.repeat) !== JSON.stringify(e.repeat)) {
       db.prepare('DELETE FROM event_changes WHERE event_id = ?').run(old.id);
     }
+    // A birthday from Contacts: the contact gets the new name and date too.
+    if (old.contact_id) birthdayChanged(old.contact_id, e);
   })();
   res.json({ ok: true, id: old.id });
 });
 
 calendarRouter.delete('/:id', requireAdult, (req, res) => {
+  const ev = eventRow(req.params.id);
   db.transaction(() => {
+    if (ev?.contact_id) birthdayDeleted(ev.contact_id);
     db.prepare('DELETE FROM event_changes WHERE event_id = ?').run(Number(req.params.id));
     db.prepare('DELETE FROM events WHERE id = ?').run(Number(req.params.id));
   })();

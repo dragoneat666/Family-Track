@@ -3,6 +3,7 @@ import { Sheet } from '../lists/ui.jsx';
 import WhoPicker from '../reminders/WhoPicker.jsx';
 import { notify } from '../notify.js';
 import { gets } from '../reminders/data.js';
+import { refreshContacts } from '../contacts/data.js';
 import {
   saveEvent, changeDate, repeatChoices, repeatKey, repeatText, remindText, todayDay, addDays, daysBetween, shortDay,
   REMIND_TIMED, REMIND_ALL_DAY, DEFAULT_REMIND
@@ -123,6 +124,7 @@ export default function EventEditor({ start, date, people, me, offline, onClose,
         await saveEvent(birthday
           ? { ...e, allDay: true, endDay: e.startDay, birthYear: showAge && bornYear < thisYear ? bornYear : null }
           : e);
+        if (start.contactId) refreshContacts().catch(() => {}); // its name and date are the contact's too
       }
       onSaved(start.id ? null : birthday ? nextBirthday(e.startDay) : e.startDay);
     } catch (err) {

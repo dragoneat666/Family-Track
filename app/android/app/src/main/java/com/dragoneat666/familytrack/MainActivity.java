@@ -2,6 +2,7 @@ package com.dragoneat666.familytrack;
 
 import android.os.Bundle;
 
+import com.dragoneat666.familytrack.contacts.ContactsPlugin;
 import com.dragoneat666.familytrack.notify.NotifyPlugin;
 import com.getcapacitor.BridgeActivity;
 
@@ -10,6 +11,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Reminders and pins: our own notification code (see notify/).
         registerPlugin(NotifyPlugin.class);
+        // "From my phone's contacts" in the contact editor (see contacts/).
+        registerPlugin(ContactsPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
