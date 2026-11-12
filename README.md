@@ -34,6 +34,9 @@ grown-ups' shared lists.
   US holidays. A month at the top and, below it, what's on day by day.
   Events can repeat (every week, every other week, every month…) and remind
   grown-ups on their phones beforehand. More under [Calendar](#calendar).
+- **My Day** (kids): a card on each kid's home screen with today's things
+  and their reminders (with **Done**), and what's on tomorrow; tap it for
+  **My Week**. More under [My Day and My Week](#my-day-and-my-week).
 - **Lists**: the grown-ups' shared lists, one per store plus anything else
   (to-dos, packing). Store lists are sorted by section in the order you walk
   that store and suggest groceries as you type; anything can be pinned to the
@@ -378,6 +381,20 @@ Year's Eve) are worked out by the app; nothing is stored for them.
 The server works out every date (`server/src/calendar.js`); the app keeps
 from a month back to about a year ahead on the device, so the calendar shows
 with no server in reach, and fetches older months when you look at them.
+
+## My Day and My Week
+
+A kid's home screen starts with **My Day**: today's things (all day first,
+then by time) and that kid's reminders for today in among them, with
+**Done** to tick one off, then "Tomorrow: …". It shows the kid's own
+things, the whole family's, everyone's birthdays and holidays; never
+grown-ups-only ones or other people's. On a tablet held sideways it sits
+beside the buttons.
+
+Tap it for **My Week**: the next seven days, today first (outlined), with
+"Nothing planned" on empty days and weekends tinted. Both refresh every few
+minutes and keep the last answer on the tablet, so they still show with no
+server in reach.
 
 ## Developing
 

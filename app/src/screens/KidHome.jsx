@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api, canUseCamera } from '../api.js';
 import { preloadTracker } from '../brush/tracker.js';
 import UpdateBanner from '../UpdateBanner.jsx';
+import { MyDayCard } from '../kids/MyDay.jsx';
 
-export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExercises, onSettings }) {
+export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExercises, onWeek, onSettings }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
 
@@ -26,6 +27,8 @@ export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExe
         <button className="btn gear" onClick={onSettings} title="Settings">⚙️</button>
       </header>
 
+      <div className="kid-main">
+      {onWeek && <MyDayCard profile={profile} onWeek={onWeek} />}
       {error && <p className="error">{error}</p>}
       {!state && !error && <div className="spinner" />}
 
@@ -72,6 +75,7 @@ export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExe
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

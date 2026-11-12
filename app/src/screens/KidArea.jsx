@@ -6,9 +6,10 @@ import Brush from './Brush.jsx';
 import Build from './Build.jsx';
 import { Characters, CharacterDetail } from './Characters.jsx';
 import Exercises from '../exercises/Exercises.jsx';
+import { MyWeek } from '../kids/MyDay.jsx';
 
-// A kid's screens: home, brushing, building, exercises and the Characters
-// screen. Used for real kids and for the test kid in the parent area (top =
+// A kid's screens: home (with My Day), brushing, building, exercises, the
+// Characters screen and My Week. Used for real kids and for the test kid in the parent area (top =
 // anything to show above the home screen).
 export default function KidArea({ profile, onSettings, top }) {
   const [screen, setScreen] = useState({ name: 'home' });
@@ -38,6 +39,8 @@ export default function KidArea({ profile, onSettings, top }) {
       );
     case 'exercises':
       return <Exercises profile={profile} onExit={home} />;
+    case 'week':
+      return <MyWeek profile={profile} onExit={home} />;
     case 'characters':
       return <Characters profile={profile} onExit={home} onOpen={(id) => go('character', { characterId: id })} />;
     case 'character':
@@ -59,6 +62,7 @@ export default function KidArea({ profile, onSettings, top }) {
             onBuild={() => go('build')}
             onCharacters={() => go('characters')}
             onExercises={() => go('exercises')}
+            onWeek={() => go('week')}
             onSettings={onSettings}
           />
         </>
