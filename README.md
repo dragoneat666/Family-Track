@@ -44,6 +44,9 @@ grown-ups' shared lists.
   up. Birthdays go on the calendar by themselves, for
   everyone, just the kids, just grown-ups or nobody. More under
   [Contacts](#contacts).
+- **Recipes**: the family's recipes with photos, amounts that scale to
+  how many are eating, and imports from recipe web pages, Mealie and
+  Tandoor. More under [Recipes](#recipes).
 - **Lists**: the grown-ups' shared lists, one per store plus anything else
   (to-dos, packing). Store lists are sorted by section in the order you walk
   that store and suggest groceries as you type; anything can be pinned to the
@@ -57,7 +60,7 @@ grown-ups' shared lists.
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
   Switching is in Settings.
-- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists**, **Reminders** and **Contacts** are there; **Kids Setup**
+- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists**, **Reminders**, **Contacts** and **Recipes** are there; **Kids Setup**
   has each kid's day, then Characters, Brushing (rules and history),
   Exercises and Test (brushing and building that save nothing). Accounts and
   Devices are under the gear, in Settings. Everything except brushing also
@@ -65,7 +68,8 @@ grown-ups' shared lists.
 - **Dark mode**: the app and the web app follow the phone's or computer's
   light/dark setting.
 
-Later: meal plans and recipes, a family tree, chores and allowance.
+Later: a meal planner and cooking mode (for recipes), a family tree, chores
+and allowance.
 
 ## Privacy
 
@@ -465,6 +469,40 @@ a name and a birthday (a friend of the kids) is fine.
 **Kids** get a 📇 button at the top of their home screen to look numbers
 up: no calling or texting from there, and no emails, notes or grown-ups-only
 contacts.
+
+## Recipes
+
+The **Recipes** button on a grown-up's home screen: every recipe with its
+photo, a search that also looks at ingredients and tags, and the most used
+tags to tap. Recipes are kept on the device, so they open with no
+connection (photos too, once seen).
+
+A recipe shows its photo, prep/cook/total time, ingredients (headings like
+"Sauce" included) and numbered steps, then notes, tags and where it's from.
+**Serves −/+** (or ½× 1× 2× 3× when it doesn't say how many) changes the
+amounts: "1½ cups", "375 g", "2–3 cloves". Tapping an ingredient crosses it
+off while getting things out.
+
+**+ Add** or **✏️ Change**: the name, a photo (taken or picked; sent as a
+JPEG up to 1600 px, without the camera's location and time), times, how
+many it serves, ingredients one per line (a line ending in `:` is a
+heading), steps one per line (or a blank line between longer ones), notes,
+tags and a web address.
+
+**📥 Import**:
+
+- **Web page**: paste a recipe page's address. Nearly every recipe site
+  describes its recipes in a standard way (schema.org), and that's what's
+  read, photo included. A few big sites turn the server away; add those by
+  hand. Only addresses out on the internet are fetched, never anything on
+  the home network.
+- **Mealie** or **Tandoor**: their address as the server reaches it and an
+  API token. It lists their recipes (ones brought over before say so), and
+  brings over those picked, with their photos, tags, times and notes. The
+  token is only used for that import and isn't kept; delete it in Mealie or
+  Tandoor afterwards. Importing again never makes a second copy.
+
+Photos are kept in the data folder (`data/recipes`).
 
 ## Developing
 

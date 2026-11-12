@@ -449,7 +449,33 @@ const MIGRATIONS = [
   `,
   // Who can tap Done on a reminder, like `who`: null = whoever gets it
   // (and any grown-up), else { all } / { groups, ids }.
-  `ALTER TABLE reminders ADD COLUMN done_who TEXT;`
+  `ALTER TABLE reminders ADD COLUMN done_who TEXT;`,
+  // Recipes. ingredients: [{ section } | { text, qty, qty2, unit, name, note }],
+  // steps: [{ section } | { text }], tags: [text]. photo: a file in
+  // DATA_DIR/recipes. imported_from: 'mealie:<id>', 'tandoor:<id>' or the
+  // web page's address, so importing again doesn't make a second copy.
+  `
+  CREATE TABLE recipes (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    servings INTEGER,
+    yield TEXT NOT NULL DEFAULT '',
+    prep_min INTEGER,
+    cook_min INTEGER,
+    total_min INTEGER,
+    ingredients TEXT NOT NULL DEFAULT '[]',
+    steps TEXT NOT NULL DEFAULT '[]',
+    notes TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '[]',
+    source_url TEXT NOT NULL DEFAULT '',
+    photo TEXT,
+    imported_from TEXT UNIQUE,
+    created_by INTEGER,
+    created_at INTEGER NOT NULL,
+    changed_at INTEGER NOT NULL
+  );
+  `
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;
