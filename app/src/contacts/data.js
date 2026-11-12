@@ -32,6 +32,8 @@ function got({ contacts, people }) {
   publish({ data, offline: false });
 }
 
+export const currentContacts = () => current();
+
 export function useContacts() {
   return useSyncExternalStore((fn) => {
     listeners.add(fn);
@@ -58,7 +60,10 @@ const afterChange = (r) => {
 export async function saveContact(c) {
   const body = {
     name: c.name, relation: c.relation, phones: c.phones, emails: c.emails, address: c.address,
-    birthday: c.birthday, birthYear: c.birthday ? c.birthYear : null, note: c.note, profileId: c.profileId, grownupsOnly: c.grownupsOnly
+    birthday: c.birthday, birthYear: c.birthday ? c.birthYear : null, note: c.note, profileId: c.profileId, grownupsOnly: c.grownupsOnly,
+    kidsName: c.kidsName, calendar: c.calendar,
+    // Kept up to date from this phone (or stop that); left out, it stays as it was.
+    ...(c.phoneSync === 'here' && c.phoneKey ? { phoneSync: true, phoneKey: c.phoneKey } : c.phoneSync === 'off' ? { phoneSync: false } : {})
   };
   return afterChange(c.id ? await api.put(`/api/contacts/${c.id}`, body) : await api.post('/api/contacts', body));
 }
@@ -71,6 +76,12 @@ export async function deleteContact(id) {
 
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 export const DAYS_IN = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+export const CALENDAR_CHOICES = [
+  ['everyone', 'Everyone'],
+  ['kids', 'Just the kids'],
+  ['grownups', 'Just grown-ups'],
+  ['none', 'Not on the calendar']
+];
 export const PHONE_LABELS = ['Mobile', 'Home', 'Work', 'Other'];
 export const EMAIL_LABELS = ['Home', 'Work', 'Other'];
 

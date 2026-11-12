@@ -2,7 +2,7 @@ import express from 'express';
 import { db } from './db.js';
 import { httpError, requireAdult } from './auth.js';
 import { gets, timeText } from './reminders.js';
-import { birthdayChanged, birthdayDeleted } from './contacts.js';
+import { birthdayChanged, birthdayDeleted, kidsNames } from './contacts.js';
 
 // The family calendar: appointments, birthdays, things that repeat (therapy
 // every other week, dance every week). Grown-ups add and change events;
@@ -218,7 +218,13 @@ calendarRouter.get('/', (req, res) => {
   const to = validDay(req.query.to) ? req.query.to : addDays(today, 400);
   if (to < from || daysBetween(from, to) > 800) throw httpError(400, 'Ask for less at a time');
   const adult = isAdult(req.account);
-  const events = db.prepare('SELECT * FROM events').all().map(parse).filter((e) => adult || !e.grownups_only);
+  // Grown-ups don't get kids-only ones (a friend's birthday), kids don't get grown-ups-only ones.
+  const events = db.prepare('SELECT * FROM events').all().map(parse).filter((e) => (adult ? !e.kids_only : !e.grownups_only));
+  if (!adult) {
+    // What the kids call them ("Grandpa"), for a birthday from Contacts.
+    const names = kidsNames();
+    for (const e of events) if (names.has(e.contact_id)) e.title = names.get(e.contact_id);
+  }
   const changes = changesOf(events.map((e) => e.id));
   const items = [];
   for (const ev of events) items.push(...occurrencesIn(ev, changes.get(ev.id), from, to));

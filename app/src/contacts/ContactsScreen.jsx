@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import { Sheet } from '../lists/ui.jsx';
 import { phoneContacts } from './phone.js';
 import {
-  useContacts, refreshContacts, saveContact, deleteContact, birthdayText, dialable, initials, nameColor, matches,
-  MONTHS, DAYS_IN, PHONE_LABELS, EMAIL_LABELS
+  useContacts, currentContacts, refreshContacts, saveContact, deleteContact, birthdayText, dialable, initials, nameColor, matches,
+  MONTHS, DAYS_IN, PHONE_LABELS, EMAIL_LABELS, CALENDAR_CHOICES
 } from './data.js';
 
 const blank = () => ({
-  name: '', relation: '', phones: [{ label: 'Mobile', number: '' }], emails: [], address: '',
-  birthday: null, birthYear: null, note: '', profileId: null, grownupsOnly: false
+  name: '', relation: '', kidsName: '', phones: [{ label: 'Mobile', number: '' }], emails: [], address: '',
+  birthday: null, birthYear: null, note: '', profileId: null, grownupsOnly: false, calendar: 'everyone', phoneSync: null
 });
+const calendarText = (c) => CALENDAR_CHOICES.find(([k]) => k === c.calendar)?.[1] || 'Everyone';
 
 // Everyone's numbers, addresses and birthdays. Grown-ups add and change
 // them (canEdit) and can call, text, email or map from here; kids just look
@@ -19,10 +20,15 @@ export default function ContactsScreen({ canEdit, onAuthLost }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(null); // contact id
   const [editing, setEditing] = useState(null); // a contact being made or changed
+  const [gone, setGone] = useState(new Set()); // kept up to date from this phone, but not in its contacts any more
 
   useEffect(() => {
     const refresh = () => refreshContacts().catch((e) => e.status === 401 && onAuthLost?.());
-    refresh();
+    // Then bring the ones this phone keeps up to date in line with its contacts.
+    refresh().then(() => {
+      const { data: d, offline: off } = currentContacts();
+      if (canEdit && phoneContacts.available && d && !off) phoneContacts.updateAll(d.contacts).then(setGone);
+    });
     const onVisible = () => { if (!document.hidden) refresh(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -67,7 +73,8 @@ export default function ContactsScreen({ canEdit, onAuthLost }) {
       </ul>
 
       {opened && !editing && (
-        <ContactSheet c={opened} person={people.get(opened.profileId)} canEdit={canEdit} offline={offline}
+        <ContactSheet c={opened} person={people.get(opened.profileId)} canEdit={canEdit} offline={offline} gone={gone.has(opened.id)}
+          onGone={(isGone) => setGone((g) => { const n = new Set(g); if (isGone) n.add(opened.id); else n.delete(opened.id); return n; })}
           onClose={() => setOpen(null)} onEdit={() => setEditing(opened)} />
       )}
       {editing && (
@@ -86,7 +93,18 @@ function Avatar({ c, person, big }) {
   return <span className={cls} style={{ background: nameColor(c.name) }}>{initials(c.name) || '?'}</span>;
 }
 
-function ContactSheet({ c, person, canEdit, offline, onClose, onEdit }) {
+function ContactSheet({ c, person, canEdit, offline, gone, onGone, onClose, onEdit }) {
+  const [updating, setUpdating] = useState('');
+  async function updateNow() {
+    setUpdating('…');
+    try {
+      const r = await phoneContacts.update(c);
+      onGone(r === 'gone');
+      setUpdating(r === 'updated' ? 'Updated from your phone ✓' : r === 'same' ? 'Already the same as your phone ✓' : '');
+    } catch (e) {
+      setUpdating(e.message);
+    }
+  }
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address.replace(/\n/g, ', '))}`;
   return (
     <Sheet title={c.name} onClose={onClose}>
@@ -95,6 +113,7 @@ function ContactSheet({ c, person, canEdit, offline, onClose, onEdit }) {
         <div className="stack tight">
           <b className="con-name">{c.name}</b>
           {c.relation && <span className="muted">{c.relation}</span>}
+          {canEdit && c.kidsName && <span className="muted small">The kids call them {c.kidsName}</span>}
           {person && <span className="muted small">Family Track: {person.emoji} {person.name}</span>}
         </div>
       </div>
@@ -129,10 +148,20 @@ function ContactSheet({ c, person, canEdit, offline, onClose, onEdit }) {
         <div className="con-line">
           <span className="con-label">Birthday</span>
           <span className="con-value">🎂 {birthdayText(c)}</span>
+          {canEdit && <span className="con-actions muted small">📅 {calendarText(c)}</span>}
         </div>
       )}
       {c.note && <p className="con-note pre">{c.note}</p>}
       {c.grownupsOnly && <p className="muted small">🔒 Only grown-ups see this contact.</p>}
+      {canEdit && c.phoneSync === 'here' && (
+        <div className="stack tight">
+          <p className="muted small">🔄 Kept up to date from this phone's contacts (not the name).</p>
+          {gone && <p className="sync-note">This phone's contacts don't have them any more (or Family Track isn't allowed to see contacts). Pick them again in ✏️ Change, or stop keeping them up to date.</p>}
+          {phoneContacts.available && <button className="btn" disabled={offline || updating === '…'} onClick={updateNow}>🔄 Update from my phone now</button>}
+          {updating && updating !== '…' && <p className="muted small">{updating}</p>}
+        </div>
+      )}
+      {canEdit && c.phoneSync === 'elsewhere' && <p className="muted small">🔄 Kept up to date from another grown-up's phone.</p>}
       {!c.phones.length && !c.address && !c.birthday && !(c.emails || []).length && <p className="muted">Nothing else saved for them yet.</p>}
 
       {canEdit && <button className="btn" disabled={offline} onClick={onEdit}>✏️ Change</button>}
@@ -141,7 +170,10 @@ function ContactSheet({ c, person, canEdit, offline, onClose, onEdit }) {
 }
 
 function ContactEditor({ start, people, contacts, offline, onClose, onSaved, onDeleted }) {
-  const [c, setC] = useState(() => ({ ...start, phones: start.phones.map((p) => ({ ...p })), emails: (start.emails || []).map((e) => ({ ...e })) }));
+  const [c, setC] = useState(() => ({
+    ...start, kidsName: start.kidsName || '', calendar: start.calendar || 'everyone',
+    phones: start.phones.map((p) => ({ ...p })), emails: (start.emails || []).map((e) => ({ ...e }))
+  }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [sure, setSure] = useState(false);
@@ -168,6 +200,7 @@ function ContactEditor({ start, people, contacts, offline, onClose, onSaved, onD
       const typedPhones = c.phones.filter((x) => x.number.trim());
       const typedEmails = c.emails.filter((x) => x.address.trim());
       set({
+        phoneKey: p.key, phoneSync: p.key ? 'here' : c.phoneSync, // kept up to date from here from now on (unless unticked)
         name: c.name.trim() || p.name,
         phones: typedPhones.length ? typedPhones : p.phones.length ? p.phones : c.phones,
         emails: typedEmails.length ? typedEmails : p.emails,
@@ -214,6 +247,18 @@ function ContactEditor({ start, people, contacts, offline, onClose, onSaved, onD
         <input value={c.name} onChange={(e) => set({ name: e.target.value })} placeholder="Grandma Rose" maxLength={80} />
       </label>
       {sameName && <p className="muted small">There's already a contact called {sameName.name}.</p>}
+      {(start.phoneSync || c.phoneKey) && (
+        <label className="inline check">
+          <input type="checkbox" checked={c.phoneSync === 'here' || c.phoneSync === 'elsewhere'}
+            onChange={(e) => set({ phoneSync: !e.target.checked ? 'off' : c.phoneKey ? 'here' : start.phoneSync })} />
+          <span>Keep up to date from {c.phoneKey ? 'my' : "another grown-up's"} phone's contacts
+            <span className="muted small"> (numbers, emails, address and birthday; the names here stay yours)</span></span>
+        </label>
+      )}
+      <label>
+        <span>What the kids call them <span className="muted small">(optional: the kids see this instead of the name)</span></span>
+        <input value={c.kidsName} onChange={(e) => set({ kidsName: e.target.value })} placeholder="Grandpa" maxLength={80} />
+      </label>
       <label>
         <span>Who they are <span className="muted small">(optional)</span></span>
         <input value={c.relation} onChange={(e) => set({ relation: e.target.value })} placeholder="Mom's mom, the kids' dentist…" maxLength={60} />
@@ -274,9 +319,23 @@ function ContactEditor({ start, people, contacts, offline, onClose, onSaved, onD
           )}
         </div>
         {month > 0 && (
-          <span className="muted small">
-            {yearBad ? 'Check the year (or leave it empty).' : 'Goes on the calendar every year, with a reminder the evening before (change that on the calendar). The year is optional: it shows how old they turn.'}
-          </span>
+          <>
+            <span className="muted small">On the calendar for</span>
+            <div className="row wrap">
+              {CALENDAR_CHOICES.map(([k, text]) => (
+                <button type="button" key={k} className={`cal-chip${c.calendar === k ? ' on' : ''}`}
+                  disabled={k === 'kids' && c.grownupsOnly} onClick={() => set({ calendar: k })}>
+                  {text}
+                </button>
+              ))}
+            </div>
+            <span className="muted small">
+              {yearBad ? 'Check the year (or leave it empty).'
+                : c.calendar === 'none' ? "Kept here, but it isn't on anyone's calendar."
+                  : c.calendar === 'kids' ? "On the kids' calendar (My Day and My Week) only, with no reminders."
+                    : 'Every year, with a reminder to grown-ups the evening before (change that on the calendar). The year is optional: it shows how old they turn.'}
+            </span>
+          </>
         )}
       </div>
 
@@ -300,7 +359,8 @@ function ContactEditor({ start, people, contacts, offline, onClose, onSaved, onD
         <textarea rows={2} value={c.note} onChange={(e) => set({ note: e.target.value })} maxLength={1000} placeholder="Gate code, kids' names…" />
       </label>
       <label className="inline check">
-        <input type="checkbox" checked={c.grownupsOnly} onChange={(e) => set({ grownupsOnly: e.target.checked })} />
+        <input type="checkbox" checked={c.grownupsOnly}
+          onChange={(e) => set({ grownupsOnly: e.target.checked, ...(e.target.checked && c.calendar === 'kids' ? { calendar: 'none' } : {}) })} />
         Grown-ups only <span className="muted small">(the kids don't see this contact or their birthday)</span>
       </label>
 

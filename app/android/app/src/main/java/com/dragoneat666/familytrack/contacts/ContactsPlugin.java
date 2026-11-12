@@ -34,8 +34,11 @@ import java.util.concurrent.Executors;
 /**
  * "From my phone's contacts" in the contact editor (app/src/contacts/phone.js):
  * the phone's own contact picker opens, and only the one contact picked is
- * read (name, numbers, emails, address, birthday) and handed to the app.
- * Nothing is read in the background and nothing is sent anywhere from here.
+ * read (name, numbers, emails, address, birthday) and handed to the app,
+ * with its lookup key. read(key) reads that same contact again, for a
+ * contact the family keeps up to date from this phone; it never asks for
+ * permission itself. Nothing is read in the background and nothing is sent
+ * anywhere from here.
  */
 @CapacitorPlugin(
     name = "FamilyContacts",
@@ -52,6 +55,38 @@ public class ContactsPlugin extends Plugin {
             return;
         }
         openPicker(call);
+    }
+
+    /** That contact again, by its lookup key: { found: false } if it's gone or contacts aren't allowed. */
+    @PluginMethod
+    public void read(PluginCall call) {
+        String key = call.getString("key");
+        if (key == null || key.isEmpty() || getPermissionState("contacts") != PermissionState.GRANTED) {
+            JSObject none = new JSObject();
+            none.put("found", false);
+            none.put("allowed", getPermissionState("contacts") == PermissionState.GRANTED);
+            call.resolve(none);
+            return;
+        }
+        io.execute(() -> {
+            try {
+                Uri uri = ContactsContract.Contacts.lookupContact(getContext().getContentResolver(),
+                    Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_LOOKUP_URI, key));
+                JSObject out;
+                if (uri == null) {
+                    out = new JSObject();
+                    out.put("found", false);
+                    out.put("allowed", true);
+                } else {
+                    out = read(uri);
+                    out.put("found", true);
+                }
+                call.resolve(out);
+            } catch (Exception e) {
+                Log.w(TAG, "reading a contact again", e);
+                call.reject("Couldn't read that contact");
+            }
+        });
     }
 
     @PermissionCallback
@@ -91,10 +126,13 @@ public class ContactsPlugin extends Plugin {
         Resources res = getContext().getResources();
         long id;
         String name;
-        try (Cursor c = cr.query(uri, new String[] { ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME }, null, null, null)) {
+        String lookupKey;
+        String[] head = { ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME, ContactsContract.Contacts.LOOKUP_KEY };
+        try (Cursor c = cr.query(uri, head, null, null, null)) {
             if (c == null || !c.moveToFirst()) throw new IllegalStateException("contact gone");
             id = c.getLong(0);
             name = c.getString(1);
+            lookupKey = c.getString(2);
         }
 
         JSArray phones = new JSArray();
@@ -131,6 +169,7 @@ public class ContactsPlugin extends Plugin {
         JSObject out = new JSObject();
         out.put("picked", true);
         out.put("name", name == null ? "" : name);
+        out.put("key", lookupKey == null ? "" : lookupKey);
         out.put("phones", phones);
         out.put("emails", emails);
         out.put("address", address);

@@ -404,11 +404,17 @@ const MIGRATIONS = [
   //   phones     JSON [{ label, number }]
   //   emails     JSON [{ label, address }]
   //   profile_id this person's Family Track account, if they have one
+  //   kids_name  what the kids call them ("Grandpa"), shown to kids instead of name
+  //   calendar   whose calendar their birthday is on: 'everyone' | 'kids' | 'grownups' | 'none'
+  //   phone_key  the phone contact it's kept up to date from (Android lookup
+  //              key), on the device phone_device; null = not kept up to date
+  // events.kids_only: on the kids' calendar only (a contact's birthday).
   `
   CREATE TABLE contacts (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     relation TEXT NOT NULL DEFAULT '',
+    kids_name TEXT NOT NULL DEFAULT '',
     phones TEXT NOT NULL DEFAULT '[]',
     emails TEXT NOT NULL DEFAULT '[]',
     address TEXT NOT NULL DEFAULT '',
@@ -417,11 +423,15 @@ const MIGRATIONS = [
     note TEXT NOT NULL DEFAULT '',
     profile_id INTEGER,
     grownups_only INTEGER NOT NULL DEFAULT 0,
+    calendar TEXT NOT NULL DEFAULT 'everyone',
+    phone_key TEXT,
+    phone_device INTEGER,
     created_by INTEGER,
     created_at INTEGER NOT NULL,
     changed_at INTEGER NOT NULL
   );
   ALTER TABLE events ADD COLUMN contact_id INTEGER;
+  ALTER TABLE events ADD COLUMN kids_only INTEGER NOT NULL DEFAULT 0;
   `
 ];
 

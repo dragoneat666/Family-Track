@@ -39,8 +39,10 @@ grown-ups' shared lists.
   **My Week**. More under [My Day and My Week](#my-day-and-my-week).
 - **Contacts**: the family's phone numbers, emails, addresses and
   birthdays. Grown-ups can call, text, email or map from there, and fill one
-  in from the phone's own contacts; kids can look numbers up. A birthday
-  goes on the calendar by itself. More under [Contacts](#contacts).
+  in from the phone's own contacts (and keep it up to date from there);
+  kids can look numbers up. Birthdays go on the calendar by themselves, for
+  everyone, just the kids, just grown-ups or nobody. More under
+  [Contacts](#contacts).
 - **Lists**: the grown-ups' shared lists, one per store plus anything else
   (to-dos, packing). Store lists are sorted by section in the order you walk
   that store and suggest groceries as you type; anything can be pinned to the
@@ -407,19 +409,35 @@ order, with a search box (a name, who they are, or part of a number). Tap
 someone for their numbers (📞 Call and 💬 Text), emails, address (🗺️ Map),
 birthday and note.
 
-A contact has a name, who they are ("Mom's mom", "the kids' dentist"), up
-to six phone numbers and four emails, an address, a birthday (the year is
-optional), a note, their Family Track account if they have one, and
-**Grown-ups only** to keep them from the kids. In the app, **From my
-phone's contacts** opens the phone's own contact picker and fills in the
-one picked; Android asks once whether Family Track may see contacts, and
-only the contact picked is read.
+📞 Call opens the phone's dialer with the number in (you still press call);
+💬 Text opens the messaging app to them.
 
-A contact's **birthday goes on the calendar** by itself, every year, with a
-reminder the evening before (change the reminders on the calendar).
-Changing the name or birthday on either side changes the other; deleting
-the birthday on the calendar leaves the contact without one, and deleting
-the contact takes the birthday away.
+A contact has a name, who they are ("Mom's mom", "the kids' dentist"),
+**what the kids call them** ("Grandpa": the kids see that instead of the
+name, in Contacts and on their calendar), up to six phone numbers and four
+emails, an address, a birthday (the year is optional), a note, their Family
+Track account if they have one, and **Grown-ups only** to keep them from
+the kids.
+
+In the app, **From my phone's contacts** opens the phone's own contact
+picker and fills in the one picked; Android asks once whether Family Track
+may see contacts, and only the contact picked is read. The name can be
+changed before saving (the phone's "Beautiful Wife" can be "Abby" here).
+**Keep up to date from my phone's contacts** (ticked when one is picked):
+each time Contacts opens on that phone, the contact is read again and
+changed numbers, emails, address and birthday are saved (an address or
+birthday the phone doesn't have stays); the names are never changed. There's
+also **🔄 Update from my phone now** on the contact. If the phone's contact
+is deleted, it says so.
+
+A contact's **birthday goes on the calendar** by itself, every year. **On
+the calendar for**: **Everyone** (the default, with a reminder to grown-ups
+the evening before; change reminders on the calendar), **Just the kids**
+(their My Day and My Week, no reminders), **Just grown-ups**, or **Not on
+the calendar**. Changing the name or birthday on either side changes the
+other; deleting the birthday on the calendar leaves the contact without
+one, and deleting the contact takes the birthday away. A contact with just
+a name and a birthday (a friend of the kids) is fine.
 
 **Kids** get a 📇 button at the top of their home screen to look numbers
 up: no calling or texting from there, and no emails, notes or grown-ups-only

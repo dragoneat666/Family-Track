@@ -774,6 +774,7 @@ input.line-text { font: inherit; padding: 4px 8px; }
 .con-avatar.big { width: 64px; height: 64px; font-size: 1.6rem; }
 .con-head { display: flex; align-items: center; gap: 14px; }
 .con-head .stack { gap: 2px; }
+.con-screen .stack.tight, .sheet .stack.tight { gap: 6px; }
 .con-name { font-size: 1.3rem; }
 .con-line { display: grid; grid-template-columns: 6.5em 1fr auto; gap: 4px 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
 .con-label { color: var(--muted); font-weight: 700; font-size: 0.9rem; }
