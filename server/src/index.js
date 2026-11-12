@@ -18,6 +18,7 @@ import {
 } from './assets.js';
 import { pieceName, nextStep, stepLabel } from './steps.js';
 import { listsRouter, listPlan, dropPrivateLists } from './lists.js';
+import { remindersRouter, reminderPlan } from './reminders.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
 const app = express();
@@ -156,14 +157,15 @@ app.put('/api/me/pin', requireAdult, (req, res) => {
 
 app.get('/api/settings', (req, res) => res.json(getSettings()));
 
-// ---------- lists & notifications ----------
+// ---------- lists, reminders & notifications ----------
 
 app.use('/api/lists', requireAdult, listsRouter);
+app.use('/api/reminders', remindersRouter);
 
 // Everything this phone should be showing or have scheduled as Android
 // notifications for whoever is signed in on it. The app fetches it whenever
 // something changes and every so often in the background.
-app.get('/api/notify/plan', (req, res) => res.json({ entries: listPlan(req.account, req.device) }));
+app.get('/api/notify/plan', (req, res) => res.json({ entries: [...listPlan(req.account, req.device), ...reminderPlan(req.account)] }));
 
 // ---------- kid side ----------
 

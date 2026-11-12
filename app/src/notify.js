@@ -18,7 +18,7 @@ const Native = isNative ? registerPlugin('FamilyNotify') : null;
 const quiet = (p) => p.catch((e) => { console.warn('notify:', e?.message || e); return null; });
 
 const tapListeners = new Set();
-const eventListeners = new Set();
+const eventListeners = new Map(); // fn -> the post path it wants, like '/api/lists/'
 let pendingTap = null;
 
 if (Native) {
@@ -46,22 +46,28 @@ export const notify = {
     if (launch?.tap) deliverTap(launch.tap);
   },
 
-  // Fetch the plan and bring alarms and pins in line with it. Resolves with
-  // { fetched } so the caller knows whether the server was reached.
-  async sync(overrides = []) {
+  // Send any tapped buttons, fetch the plan and bring alarms and pins in line
+  // with it. Resolves with { fetched } so the caller knows whether the server
+  // was reached. overrides: see above; left out, the last ones are kept.
+  async sync(overrides) {
     if (!Native) return { fetched: false };
-    return (await quiet(Native.sync({ overrides }))) || { fetched: false };
+    return (await quiet(Native.sync(overrides ? { overrides } : {}))) || { fetched: false };
   },
 
-  // Buttons tapped on notifications since last asked: [{ id, action, post, sent }].
-  onEvents(fn) {
-    eventListeners.add(fn);
+  // Buttons tapped on notifications whose change goes to a path starting
+  // with prefix: fn([{ id, action, post, sent }]). Only those are taken from
+  // the native side; anything nobody asks for it sends to the server itself.
+  onEvents(prefix, fn) {
+    eventListeners.set(fn, prefix);
     return () => eventListeners.delete(fn);
   },
   async drainEvents() {
     if (!Native) return;
-    const r = await quiet(Native.takeEvents());
-    if (r?.events?.length) for (const fn of eventListeners) fn(r.events);
+    for (const prefix of new Set(eventListeners.values())) {
+      const r = await quiet(Native.takeEvents({ prefix }));
+      if (!r?.events?.length) continue;
+      for (const [fn, p] of eventListeners) if (p === prefix) fn(r.events);
+    }
   },
 
   // A tapped notification says where to go: { screen: 'list', list, item }.

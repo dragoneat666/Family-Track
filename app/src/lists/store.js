@@ -504,7 +504,7 @@ export function startLists(account, { onAuthLost } = {}) {
   document.addEventListener('visibilitychange', s.onVisible);
   window.addEventListener('pagehide', s.onVisible);
   window.addEventListener('online', s.onOnline);
-  s.offEvents = notify.onEvents(takeEvents);
+  s.offEvents = notify.onEvents('/api/lists/', takeEvents);
   notify.drainEvents();
   planSoon(s);
   loop(s);

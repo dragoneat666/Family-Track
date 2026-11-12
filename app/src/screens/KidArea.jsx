@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '../api.js';
+import { notify } from '../notify.js';
 import KidHome from './KidHome.jsx';
 import Brush from './Brush.jsx';
 import Build from './Build.jsx';
@@ -13,6 +15,15 @@ export default function KidArea({ profile, onSettings, top }) {
   const go = (name, extra = {}) => setScreen({ name, ...extra });
   const home = () => go('home');
   const { characterId } = screen;
+
+  // A grown-up made reminders for this kid: this tablet needs to be allowed
+  // to show notifications (Android asks once).
+  useEffect(() => {
+    if (!notify.available || profile.isTest) return;
+    api.get('/api/reminders/today')
+      .then((r) => r.reminders.length && notify.allow())
+      .catch(() => { /* no server right now: next time */ });
+  }, [profile.id]);
 
   switch (screen.name) {
     case 'brush':

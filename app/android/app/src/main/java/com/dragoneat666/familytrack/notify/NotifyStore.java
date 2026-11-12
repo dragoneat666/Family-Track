@@ -116,7 +116,22 @@ final class NotifyStore {
         ev.put("sent", false);
         if (post != null) ev.put("post", post);
         // Never let it grow without end if the app is never opened.
-        setEvents(ctx, lastOf(events(ctx).put(ev), MAX_EVENTS));
+        setEvents(ctx, lastOf(withoutOldSent(events(ctx)).put(ev), MAX_EVENTS));
+    }
+
+    /**
+     * Events the server already has are kept a day, for the app to pick up
+     * and show straight away (only some kinds are ever picked up); after
+     * that the app hears it from the server anyway.
+     */
+    static JSONArray withoutOldSent(JSONArray events) {
+        long old = System.currentTimeMillis() - 24L * 60 * 60 * 1000;
+        JSONArray kept = new JSONArray();
+        for (int i = 0; i < events.length(); i++) {
+            JSONObject ev = events.optJSONObject(i);
+            if (ev != null && !(ev.optBoolean("sent") && ev.optLong("at") < old)) kept.put(ev);
+        }
+        return kept;
     }
 
     static JSONArray log(Context ctx) { return array(ctx, "log"); }

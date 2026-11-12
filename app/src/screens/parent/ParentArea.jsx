@@ -11,12 +11,15 @@ import ListView from '../../lists/ListView.jsx';
 import { SyncNote } from '../../lists/ui.jsx';
 import { startLists, stopLists, useLists } from '../../lists/store.js';
 import { notify } from '../../notify.js';
+import RemindersScreen from '../../reminders/RemindersScreen.jsx';
+import { useReminders, refreshReminders, todayNote } from '../../reminders/data.js';
 
 // Every screen a grown-up can open from a button. `under` is where its Back
 // button goes: Home has the family's things, Kids Setup has what the kids'
 // side needs (accounts and devices are in Settings, behind the gear).
 const SCREENS = {
   lists: { emoji: '🛒', title: 'Lists', under: 'home' },
+  reminders: { emoji: '⏰', title: 'Reminders', under: 'home' },
   kids: { emoji: '🧒', title: 'Kids Setup', under: 'home' },
   characters: { emoji: '🤖', title: 'Characters', under: 'kids', note: 'What the kids build and dress up' },
   brushing: { emoji: '🪥', title: 'Brushing', under: 'kids', note: 'Rules, history and each kid’s setting' },
@@ -41,8 +44,14 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
     startLists(account, { onAuthLost });
     return stopLists;
   }, [account.id]);
-  // Tapping a list's notification opens that list.
-  useEffect(() => notify.onTap((tap) => tap.screen === 'list' && openList(tap.list, tap.item)), []);
+  // Tapping a notification opens what it's about.
+  useEffect(() => notify.onTap((tap) => {
+    if (tap.screen === 'list') openList(tap.list, tap.item);
+    else if (tap.screen === 'reminders') {
+      setFullScreen(null);
+      setScreen('reminders');
+    }
+  }), []);
 
   if (fullScreen) return fullScreen;
 
@@ -74,6 +83,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
       </header>
       <main className="parent-main">
         {screen === 'lists' && <ListsTab openList={openList} />}
+        {screen === 'reminders' && <RemindersScreen account={account} onAuthLost={onAuthLost} />}
         {screen === 'kids' && (
           <div className="stack">
             <OverviewTab onAuthLost={onAuthLost} />
@@ -93,9 +103,11 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
 // behind it when there's something to say.
 function Home({ open }) {
   const v = useLists();
+  const reminders = useReminders();
   const [kids, setKids] = useState(null);
   useEffect(() => {
     api.get('/api/parent/overview').then(setKids).catch(() => { /* no server right now: the button still works */ });
+    refreshReminders().catch(() => {});
   }, []);
 
   const left = [...v.items.values()].filter((i) => !i.checked).length;
@@ -106,6 +118,7 @@ function Home({ open }) {
       <div className="home-grid">
         <Tile tone="lists" emoji="🛒" title="Lists" onClick={() => open('lists')}
           note={v.ready ? (left ? `${left} ${left === 1 ? 'thing' : 'things'} left` : 'Nothing left') : ''} />
+        <Tile tone="reminders" emoji="⏰" title="Reminders" onClick={() => open('reminders')} note={todayNote(reminders.data)} />
         <Tile tone="kids" emoji="🧒" title="Kids Setup" onClick={() => open('kids')}
           note={kids?.length ? `🪥 ${brushed} of ${kids.length} brushed today` : ''} />
       </div>

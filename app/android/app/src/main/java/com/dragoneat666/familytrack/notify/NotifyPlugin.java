@@ -101,13 +101,16 @@ public class NotifyPlugin extends Plugin {
         });
     }
 
-    /** overrides: entries (or { id, removed }) for changes the server has not heard yet. */
+    /**
+     * overrides: entries (or { id, removed }) for changes the server has not
+     * heard yet. Left out, the ones from last time are kept.
+     */
     @PluginMethod
     public void sync(PluginCall call) {
         Context ctx = getContext();
-        JSArray overrides = call.getArray("overrides", new JSArray());
+        JSArray overrides = call.getArray("overrides", null);
         io.execute(() -> {
-            NotifyStore.setOverrides(ctx, overrides);
+            if (overrides != null) NotifyStore.setOverrides(ctx, overrides);
             // Straight away from what we know (pinning works offline), then again with the word of the server.
             Notifier.reconcile(ctx);
             JSObject out = new JSObject();
@@ -116,16 +119,29 @@ public class NotifyPlugin extends Plugin {
         });
     }
 
+    /**
+     * Hands over (and forgets) tapped buttons whose post path starts with
+     * prefix. The rest stay: the native side sends those to the server itself.
+     */
     @PluginMethod
     public void takeEvents(PluginCall call) {
         Context ctx = getContext();
-        JSONArray events;
+        String prefix = call.getString("prefix", "");
+        JSONArray taken = new JSONArray();
         synchronized (Notifier.class) {
-            events = NotifyStore.events(ctx);
-            if (events.length() > 0) NotifyStore.setEvents(ctx, new JSONArray());
+            JSONArray all = NotifyStore.events(ctx);
+            JSONArray kept = new JSONArray();
+            for (int i = 0; i < all.length(); i++) {
+                JSONObject ev = all.optJSONObject(i);
+                if (ev == null) continue;
+                JSONObject post = ev.optJSONObject("post");
+                String path = post == null ? "" : post.optString("path");
+                (path.startsWith(prefix) ? taken : kept).put(ev);
+            }
+            if (taken.length() > 0) NotifyStore.setEvents(ctx, kept);
         }
         JSObject out = new JSObject();
-        out.put("events", events);
+        out.put("events", taken);
         call.resolve(out);
     }
 

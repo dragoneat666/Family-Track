@@ -35,18 +35,21 @@ grown-ups' shared lists.
   that store and suggest groceries as you type; anything can be pinned to the
   phone's notifications or given a reminder. They work with no connection
   and catch up later. More under [Lists](#lists).
+- **Reminders**: things like pills, at set times on chosen days, for
+  everyone or just some of the family. They pop up on phones and tablets
+  with a **Done** button, and remind again a little later if nobody taps it.
+  More under [Reminders](#reminders).
 - **Accounts**: grown-up and kid accounts. Each device asks "Who are you?"
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
   Switching is in Settings.
-- **Grown-ups**: a home screen of buttons. **Lists** is there; **Kids Setup**
+- **Grown-ups**: a home screen of buttons. **Lists** and **Reminders** are there; **Kids Setup**
   has each kid's day, then Characters, Brushing (rules and history),
   Exercises and Test (brushing and building that save nothing). Accounts and
   Devices are under the gear, in Settings. Everything except brushing also
   works in a browser (the web app is served by the server itself).
 
-Later: calendar and daily reminders, contacts, meal plans and recipes, chores
-and allowance.
+Later: calendar, contacts, meal plans and recipes, chores and allowance.
 
 ## Privacy
 
@@ -284,6 +287,38 @@ How it fits together, for the curious: the phone sends each change as a small
 phone which notifications it should be showing (`GET /api/notify/plan`), and
 the Java code in `app/android/…/notify/` turns that into alarms and
 notifications.
+
+## Reminders
+
+The **Reminders** button on a grown-up's home screen, for things that happen
+at the same times every day or week: pills in the morning and evening,
+vitamins, feeding the dog. A grown-up makes them; nothing is made for you.
+
+Each one has:
+
+- **At**: one or more times of day, and **On**: every day or chosen days.
+- **Who gets it**: Everyone, or untick that to pick Adults and/or Kids, or
+  untick one of those to pick its people. Groups stay groups, so someone
+  added to the family later gets it too.
+- **Done**: by default one Done counts for everyone, whoever taps it first.
+  Or **Everyone taps their own Done**, and each person is reminded until
+  they do.
+- **If it isn't done**: remind again after 30 minutes and again after an
+  hour (both can be changed or turned off), then stop. A notification
+  nobody dealt with goes away when the next time comes round.
+- **Paused**: kept, but no notifications for now.
+
+The screen also shows today's times: who tapped Done and when, which are not
+done yet, and a Done (or Undo) button for each; a grown-up can tap it for
+anyone.
+
+On the phones it works like list reminders: a week of times is set as alarms
+on the phone, so they go off with no connection. Before reminding again the
+phone asks the server whether someone already tapped Done somewhere else, and
+if so takes the notification down instead (with no server in reach, it
+reminds anyway). A kid's tablet asks once for permission to show
+notifications, when the app opens there with a reminder for that kid today.
+Times are in the server's time zone.
 
 ## Developing
 

@@ -317,7 +317,43 @@ const MIGRATIONS = [
   `,
   // A reminder for a whole day instead of a time: it shows up quietly when
   // that day starts (remind_at is then midnight on the phone that set it).
-  `ALTER TABLE list_items ADD COLUMN remind_all_day INTEGER NOT NULL DEFAULT 0;`
+  `ALTER TABLE list_items ADD COLUMN remind_all_day INTEGER NOT NULL DEFAULT 0;`,
+  // Reminders at set times (pills morning and evening...), made by grown-ups.
+  //   times     JSON ["08:00", "20:00"], the server's local time
+  //   days      JSON weekdays it goes off on, 0 = Sunday
+  //   who       JSON { all: true } or { groups: ['adults'|'kids'], ids: [profile ids] }
+  //   each      everyone taps their own Done (else one Done counts for everyone)
+  //   nudges    JSON minutes after the time to remind again while it isn't done
+  //   starts_at nothing earlier than this goes out (set when it's made, and
+  //             when its times, days or people change), so a reminder made at
+  //             9:00 for 8:00 doesn't pop up as "late" straight away
+  // reminder_done: occ is which time it was, 'YYYY-MM-DDTHH:MM' local;
+  // profile_id 0 = done for everyone, else done by/for that person (each).
+  `
+  CREATE TABLE reminders (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    times TEXT NOT NULL,
+    days TEXT NOT NULL,
+    who TEXT NOT NULL,
+    each INTEGER NOT NULL DEFAULT 0,
+    nudges TEXT NOT NULL,
+    paused INTEGER NOT NULL DEFAULT 0,
+    starts_at INTEGER NOT NULL,
+    created_by INTEGER,
+    created_at INTEGER NOT NULL,
+    changed_at INTEGER NOT NULL
+  );
+  CREATE TABLE reminder_done (
+    reminder_id INTEGER NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
+    occ TEXT NOT NULL,
+    profile_id INTEGER NOT NULL DEFAULT 0,
+    done_by INTEGER,
+    done_at INTEGER NOT NULL,
+    PRIMARY KEY (reminder_id, occ, profile_id)
+  );
+  `
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

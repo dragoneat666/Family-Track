@@ -46,6 +46,7 @@ import okhttp3.mockwebserver.RecordedRequest;
 @Config(sdk = 34)
 public class NotifierTest {
     private static final long HOUR = 60 * 60 * 1000;
+    private static final long MIN = 60 * 1000;
     private Context ctx;
     private NotificationManager nm;
     private AlarmManager am;
@@ -87,6 +88,36 @@ public class NotifierTest {
         return new JSONObject().put("id", id).put("at", at).put("channel", "reminders")
             .put("title", title).put("body", "To do").put("actions", done(id))
             .put("tap", new JSONObject().put("screen", "list").put("list", "l2").put("item", "i1"));
+    }
+
+    /** A daily reminder (Reminders section): reminds again at 30 and 60 minutes, over 12 hours later. */
+    private static JSONObject daily(String id, String title, long at) throws Exception {
+        JSONObject done = new JSONObject().put("path", "/api/reminders/done").put("body", new JSONObject().put("id", 1).put("occ", "2026-11-11T08:00"));
+        return new JSONObject().put("id", id).put("at", at).put("channel", "reminders").put("quiet", false)
+            .put("title", title).put("body", "8:00 AM").put("againBody", "Not done yet · 8:00 AM")
+            .put("actions", new JSONArray().put(new JSONObject().put("id", "done").put("title", "Done").put("post", done)))
+            .put("nudges", new JSONArray().put(at + 30 * MIN).put(at + 60 * MIN))
+            .put("until", at + 12 * HOUR)
+            .put("tap", new JSONObject().put("screen", "reminders"));
+    }
+
+    private ShadowAlarmManager.ScheduledAlarm onlyAlarm() {
+        assertEquals(1, alarms().size());
+        return alarms().get(0);
+    }
+
+    /**
+     * That alarm goes off (and, as on a phone, is no longer set). Returns
+     * what to ask the server, for a nudge that asks first.
+     */
+    private Notifier.Nudge ring(ShadowAlarmManager.ScheduledAlarm alarm) {
+        Intent i = shadowOf(alarm.operation).getSavedIntent();
+        am.cancel(alarm.operation);
+        return Notifier.fire(ctx, i.getStringExtra("id"), i.getLongExtra("at", 0));
+    }
+
+    private static String text(Notification n) {
+        return String.valueOf(n.extras.getCharSequence(Notification.EXTRA_TEXT));
     }
 
     private void plan(JSONObject... entries) {
@@ -512,5 +543,169 @@ public class NotifierTest {
         JSONArray events = NotifyStore.events(ctx);
         assertFalse(events.getJSONObject(events.length() - 1).getBoolean("sent"));
         assertEquals(1, NotifyStore.plan(ctx).length());
+    }
+
+    @Test
+    public void aDailyReminderRemindsAgainThenGoesWhenItsTimeIsOver() throws Exception {
+        long at = System.currentTimeMillis() + HOUR;
+        plan(daily("rem-1-a", "Morning pills", at));
+        Notifier.reconcile(ctx);
+        assertEquals(at, onlyAlarm().getTriggerAtMs());
+
+        ShadowAlarmManager.ScheduledAlarm first = onlyAlarm();
+        am.cancel(first.operation);
+        new AlarmReceiver().onReceive(ctx, shadowOf(first.operation).getSavedIntent());
+        Notification n = shown("rem-1-a");
+        assertEquals("Morning pills", title(n));
+        assertEquals("8:00 AM", text(n));
+        assertEquals(at + 30 * MIN, onlyAlarm().getTriggerAtMs());
+
+        // Swiped away is not Done: it still reminds again.
+        press(n.deleteIntent);
+        nm.cancel("rem-1-a", 1);
+        assertNull(ring(onlyAlarm()));
+        assertEquals("Not done yet · 8:00 AM", text(shown("rem-1-a")));
+        assertEquals(at + 60 * MIN, onlyAlarm().getTriggerAtMs());
+        // (Looking at the plan again doesn't swap the words back.)
+        Notifier.reconcile(ctx);
+        assertEquals("Not done yet · 8:00 AM", text(shown("rem-1-a")));
+
+        assertNull(ring(onlyAlarm()));
+        assertNotNull(shown("rem-1-a"));
+        assertEquals(2, logLines("Reminded again: Morning pills"));
+
+        // Then no more reminding; it goes when its time is over.
+        assertEquals(at + 12 * HOUR, onlyAlarm().getTriggerAtMs());
+        assertNull(ring(onlyAlarm()));
+        assertNull(shown("rem-1-a"));
+        assertEquals(0, alarms().size());
+
+        // And a restart doesn't bring it back.
+        restartPhone();
+        Notifier.reconcile(ctx);
+        assertNull(shown("rem-1-a"));
+        assertEquals(0, alarms().size());
+    }
+
+    @Test
+    public void doneOnADailyReminderStopsTheRemindingAgain() throws Exception {
+        long at = System.currentTimeMillis() + HOUR;
+        plan(daily("rem-1-a", "Morning pills", at));
+        Notifier.reconcile(ctx);
+        ring(onlyAlarm());
+        press(shown("rem-1-a").actions[0].actionIntent);
+        assertNull(shown("rem-1-a"));
+        assertEquals(0, alarms().size());
+        JSONObject ev = NotifyStore.events(ctx).getJSONObject(0);
+        assertEquals("/api/reminders/done", ev.getJSONObject("post").getString("path"));
+        assertEquals("2026-11-11T08:00", ev.getJSONObject("post").getJSONObject("body").getString("occ"));
+    }
+
+    @Test
+    public void beforeRemindingAgainItAsksTheServerWhetherSomeoneDidIt() throws Exception {
+        final String[] answer = { "{\"done\":false}" };
+        final List<String> seen = Collections.synchronizedList(new ArrayList<>());
+        server = new MockWebServer();
+        server.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                seen.add(request.getMethod() + " " + request.getPath() + " " + request.getHeader("Authorization"));
+                return new MockResponse().setHeader("Content-Type", "application/json").setBody(answer[0]);
+            }
+        });
+        server.start();
+        NotifyStore.setAccount(ctx, "http://127.0.0.1:" + server.getPort(), "secret-token");
+        long at = System.currentTimeMillis() + HOUR;
+        plan(daily("rem-1-a", "Morning pills", at).put("check", "/api/reminders/check?id=1&occ=x"));
+        Notifier.reconcile(ctx);
+        assertNull(ring(onlyAlarm()));
+        assertEquals(0, seen.size()); // (showing it at its time doesn't ask)
+
+        // Nobody has: it reminds again.
+        Notifier.Nudge ask = ring(onlyAlarm());
+        assertNotNull(ask);
+        Notifier.nudge(ctx, ask);
+        assertEquals("GET /api/reminders/check?id=1&occ=x Bearer secret-token", seen.get(0));
+        assertEquals("Not done yet · 8:00 AM", text(shown("rem-1-a")));
+
+        // Someone tapped Done on their phone since: it's taken down, and that's the end of it.
+        answer[0] = "{\"done\":true}";
+        Notifier.nudge(ctx, ring(onlyAlarm()));
+        assertNull(shown("rem-1-a"));
+        assertEquals(0, alarms().size());
+        assertEquals(1, logLines("Someone already did it"));
+    }
+
+    @Test
+    public void withTheServerOutOfReachItRemindsAgainAnyway() throws Exception {
+        NotifyStore.setAccount(ctx, "http://127.0.0.1:9", "secret-token");
+        long at = System.currentTimeMillis() + HOUR;
+        plan(daily("rem-1-a", "Morning pills", at).put("check", "/api/reminders/check?id=1&occ=x"));
+        Notifier.reconcile(ctx);
+        ring(onlyAlarm());
+        Notifier.nudge(ctx, ring(onlyAlarm()));
+        assertEquals("Not done yet · 8:00 AM", text(shown("rem-1-a")));
+        assertEquals(at + 60 * MIN, onlyAlarm().getTriggerAtMs());
+    }
+
+    @Test
+    public void remindersAgainMissedWhileThePhoneWasOffAreSkipped() throws Exception {
+        long at = System.currentTimeMillis() - 45 * MIN;
+        plan(daily("rem-1-a", "Morning pills", at));
+        Notifier.reconcile(ctx);
+        // Shown late, once; the 30-minute one went by, the 60-minute one is still to come.
+        assertEquals("8:00 AM", text(shown("rem-1-a")));
+        assertEquals(at + 60 * MIN, onlyAlarm().getTriggerAtMs());
+    }
+
+    @Test
+    public void oneWhoseTimeIsOverIsNotShownLate() throws Exception {
+        long now = System.currentTimeMillis();
+        plan(daily("rem-1-a", "Yesterday evening", now - 3 * HOUR).put("until", now - HOUR));
+        Notifier.reconcile(ctx);
+        assertNull(shown("rem-1-a"));
+        assertEquals(0, alarms().size());
+    }
+
+    @Test
+    public void aButtonTheServerTurnsDownDoesNotHoldUpTheRest() throws Exception {
+        final List<String> seen = Collections.synchronizedList(new ArrayList<>());
+        server = new MockWebServer();
+        server.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                String body = request.getBody().readUtf8();
+                seen.add(request.getMethod() + " " + request.getPath());
+                if (body.contains("gone")) return new MockResponse().setResponseCode(404).setBody("{\"error\":\"That reminder is gone\"}");
+                String answer = "/api/notify/plan".equals(request.getPath()) ? "{\"entries\":[]}" : "{}";
+                return new MockResponse().setHeader("Content-Type", "application/json").setBody(answer);
+            }
+        });
+        server.start();
+        NotifyStore.setAccount(ctx, "http://127.0.0.1:" + server.getPort(), "secret-token");
+        long now = System.currentTimeMillis();
+        NotifyStore.addEvent(ctx, "rem-9-a", "done", "Deleted since", new JSONObject().put("path", "/api/reminders/done").put("body", new JSONObject().put("id", "gone")), now);
+        NotifyStore.addEvent(ctx, "pin-item-a", "done", "Milk", post("done-pin-item-a"), now);
+        assertTrue(Notifier.sync(ctx));
+        assertEquals("POST /api/reminders/done", seen.get(0));
+        assertEquals("POST /api/lists/ops", seen.get(1));
+        JSONArray events = NotifyStore.events(ctx);
+        assertTrue(events.getJSONObject(0).getBoolean("sent"));
+        assertTrue(events.getJSONObject(1).getBoolean("sent"));
+        assertEquals(1, logLines("The server turned down done on Deleted since (404)"));
+    }
+
+    @Test
+    public void buttonsTheServerHasAreForgottenAfterADay() throws Exception {
+        long now = System.currentTimeMillis();
+        NotifyStore.setEvents(ctx, new JSONArray()
+            .put(new JSONObject().put("uid", "old-sent").put("sent", true).put("at", now - 48 * HOUR))
+            .put(new JSONObject().put("uid", "old-unsent").put("sent", false).put("at", now - 48 * HOUR))
+            .put(new JSONObject().put("uid", "new-sent").put("sent", true).put("at", now - HOUR)));
+        NotifyStore.addEvent(ctx, "x", "done", "X", null, now);
+        JSONArray events = NotifyStore.events(ctx);
+        assertEquals(3, events.length());
+        assertEquals("old-unsent", events.getJSONObject(0).getString("uid"));
+        assertEquals("new-sent", events.getJSONObject(1).getString("uid"));
     }
 }

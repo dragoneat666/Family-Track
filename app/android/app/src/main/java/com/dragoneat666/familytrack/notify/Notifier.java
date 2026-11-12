@@ -41,7 +41,8 @@ import java.util.Map;
  * unsent changes) into Android notifications and alarms, and keeps them in
  * line with it. An entry looks like:
  *
- *   { id, at, title, body, lines, channel, ongoing, actions, dismiss, tap }
+ *   { id, at, title, body, lines, channel, ongoing, quiet, actions, dismiss, tap,
+ *     nudges, check, againBody, until }
  *
  *   at       when to show it (ms since 1970); null = show now and keep it up
  *            to date for as long as it's in the plan (a pin)
@@ -49,6 +50,12 @@ import java.util.Map;
  *            post to the server without opening the app
  *   dismiss  { post } to send when an ongoing one is swiped away
  *   tap      handed to the app when the notification itself is tapped
+ *   nudges   times (ms) to remind again, with a sound and againBody as the
+ *            text, unless a button on it was tapped first. With check (a
+ *            path to GET), the server is asked first whether someone else
+ *            dealt with it ({ done: true }): then it's taken down instead.
+ *            If the server can't be reached it reminds anyway.
+ *   until    when to take it down if nobody dealt with it (ms)
  *
  * Everything here may run with the app closed: from an alarm, a tapped
  * button, a restart of the phone, or the background check. Methods that
@@ -62,6 +69,10 @@ public final class Notifier {
     static final long LATE_MS = 24L * 60 * 60 * 1000;
     private static final long KEEP_FIRED_MS = 7 * LATE_MS;
     private static final long UNSUPPRESS_MS = 2 * 60 * 1000;
+    /** A nudge whose time went by up to this long ago still goes off (its alarm may be on the way). */
+    private static final long NUDGE_GRACE_MS = 2 * 60 * 1000;
+    /** Marks an entry as over in "fired": its until came, or someone dealt with it elsewhere. */
+    private static final String END = "+end";
     private static final int NOTIFICATION_ID = 1; // entries are told apart by tag (their id)
 
     private Notifier() {}
@@ -94,6 +105,8 @@ public final class Notifier {
      * state: shown      { id: hash }        notifications we have up
      *        alarms     { id: at }          alarms set with Android
      *        fired      { "id@at": time }   reminders already shown at their time
+     *                   { "id@at+t": time } its nudge at t is done (or was skipped)
+     *                   { "id@at+end": time } over: taken down for good
      *        suppressed { id: time }        dealt with on a notification; hidden until the server agrees
      *        repost     [ id ]              were up before a restart
      */
@@ -136,16 +149,13 @@ public final class Notifier {
                 cancelNotification(ctx, id);
                 shown.remove(id);
             }
-            for (String id : keys(alarms)) {
-                JSONObject e = want.get(id);
-                if (e != null && !e.isNull("at") && e.optLong("at") == alarms.optLong(id)) continue;
-                cancelAlarm(ctx, id);
-                alarms.remove(id);
-            }
+            // When each entry next needs its alarm: its time, or once it's
+            // shown, its next nudge or the time it ends.
+            Map<String, Long> wantAlarms = new LinkedHashMap<>();
 
             for (JSONObject e : want.values()) {
                 String id = e.optString("id");
-                String hash = Integer.toHexString(e.toString().hashCode());
+                String hash = hash(e);
                 boolean up = shown.has(id);
                 boolean ongoing = e.optBoolean("ongoing");
                 if (e.isNull("at")) {
@@ -158,6 +168,17 @@ public final class Notifier {
                 }
                 long at = e.optLong("at");
                 String key = id + "@" + at;
+                long until = e.optLong("until", 0);
+                if (fired.has(key + END) || (until > 0 && until <= now)) {
+                    // Over: the next one is up, or someone already did it.
+                    if (up) {
+                        cancelNotification(ctx, id);
+                        shown.remove(id);
+                    }
+                    if (!fired.has(key)) fired.put(key, now);
+                    if (!fired.has(key + END)) fired.put(key + END, now);
+                    continue;
+                }
                 if (fired.has(key)) {
                     // Already shown at its time. Keep its words current while it's
                     // still up. Put it back if a restart took it down, or (a pin
@@ -182,11 +203,32 @@ public final class Notifier {
                         cancelNotification(ctx, id);
                         shown.remove(id);
                     }
-                    if (alarms.optLong(id, -1) != at) {
-                        setAlarm(ctx, id, at);
-                        alarms.put(id, at);
-                    }
+                    wantAlarms.put(id, at);
+                    continue;
                 }
+                // Shown: what comes next is a nudge (one whose time went by
+                // unnoticed, phone off say, is skipped) or the time it ends.
+                long next = until > 0 ? until : Long.MAX_VALUE;
+                JSONArray nudges = e.optJSONArray("nudges");
+                for (int i = 0; nudges != null && i < nudges.length(); i++) {
+                    long t = nudges.optLong(i);
+                    if (t <= at || fired.has(key + "+" + t)) continue;
+                    if (t < now - NUDGE_GRACE_MS) fired.put(key + "+" + t, now);
+                    else next = Math.min(next, t);
+                }
+                if (next != Long.MAX_VALUE) wantAlarms.put(id, next);
+            }
+
+            for (String id : keys(alarms)) {
+                Long t = wantAlarms.get(id);
+                if (t != null && t == alarms.optLong(id)) continue;
+                cancelAlarm(ctx, id);
+                alarms.remove(id);
+            }
+            for (Map.Entry<String, Long> a : wantAlarms.entrySet()) {
+                if (alarms.has(a.getKey())) continue;
+                setAlarm(ctx, a.getKey(), a.getValue());
+                alarms.put(a.getKey(), a.getValue());
             }
 
             for (String key : keys(fired)) if (fired.optLong(key) < now - KEEP_FIRED_MS) fired.remove(key);
@@ -208,25 +250,131 @@ public final class Notifier {
         }
     }
 
-    /** An alarm went off: show its reminder, if it's still wanted. */
-    static synchronized void fire(Context ctx, String id, long at) {
-        try {
-            JSONObject state = NotifyStore.state(ctx);
-            child(state, "alarms").remove(id);
-            JSONObject e = wanted(ctx, state).get(id);
-            JSONObject fired = child(state, "fired");
-            String key = id + "@" + at;
-            if (e != null && !e.isNull("at") && e.optLong("at") == at && !fired.has(key)) {
-                fired.put(key, System.currentTimeMillis());
-                boolean ok = show(ctx, e, e.optBoolean("quiet"));
-                if (ok) child(state, "shown").put(id, Integer.toHexString(e.toString().hashCode()));
-                NotifyStore.log(ctx, (ok ? "Shown at its time: " : "Android would not show: ") + e.optString("title"));
-            }
-            NotifyStore.setState(ctx, state);
-        } catch (Exception ex) {
-            Log.w(TAG, "fire failed", ex);
-            NotifyStore.log(ctx, "Something went wrong showing a reminder: " + ex);
+    /** A nudge that has to ask the server first (see {@link #nudge}). */
+    static final class Nudge {
+        final String id;
+        final String key;
+        final String check;
+
+        Nudge(String id, String key, String check) {
+            this.id = id;
+            this.key = key;
+            this.check = check;
         }
+    }
+
+    /**
+     * An alarm went off. At an entry's time: show it. At one of its nudges:
+     * remind again, or if the entry says to ask the server first, return what
+     * to ask (network isn't allowed here: the caller asks with {@link #nudge}).
+     * At its until: take it down.
+     */
+    static Nudge fire(Context ctx, String id, long alarmAt) {
+        Nudge ask = null;
+        synchronized (Notifier.class) {
+            try {
+                JSONObject state = NotifyStore.state(ctx);
+                child(state, "alarms").remove(id);
+                JSONObject e = wanted(ctx, state).get(id);
+                JSONObject fired = child(state, "fired");
+                long now = System.currentTimeMillis();
+                if (e != null && !e.isNull("at")) {
+                    long at = e.optLong("at");
+                    String key = id + "@" + at;
+                    long until = e.optLong("until", 0);
+                    if (!fired.has(key)) {
+                        if (at == alarmAt) {
+                            fired.put(key, now);
+                            boolean ok = show(ctx, e, e.optBoolean("quiet"));
+                            if (ok) child(state, "shown").put(id, hash(e));
+                            NotifyStore.log(ctx, (ok ? "Shown at its time: " : "Android would not show: ") + e.optString("title"));
+                        }
+                    } else if (fired.has(key + END)) {
+                        // Already over.
+                    } else if (until > 0 && Math.max(now, alarmAt) >= until) {
+                        end(ctx, state, e, key, "Taken down, its time is over: ");
+                    } else {
+                        // The latest nudge that's due; any earlier one not done yet is skipped.
+                        long due = 0;
+                        JSONArray nudges = e.optJSONArray("nudges");
+                        for (int i = 0; nudges != null && i < nudges.length(); i++) {
+                            long t = nudges.optLong(i);
+                            if (t > at && t <= Math.max(now, alarmAt) && !fired.has(key + "+" + t)) {
+                                fired.put(key + "+" + t, now);
+                                due = Math.max(due, t);
+                            }
+                        }
+                        if (due > 0) {
+                            String check = e.optString("check");
+                            if (check.length() > 0 && NotifyStore.token(ctx).length() > 0) ask = new Nudge(id, key, check);
+                            else remindAgain(ctx, state, e);
+                        }
+                    }
+                }
+                NotifyStore.setState(ctx, state);
+            } catch (Exception ex) {
+                Log.w(TAG, "fire failed", ex);
+                NotifyStore.log(ctx, "Something went wrong showing a reminder: " + ex);
+            }
+        }
+        if (ask == null) reconcile(ctx); // sets the alarm for whatever comes next
+        return ask;
+    }
+
+    /**
+     * Time for a nudge that asks first: has someone dealt with it on another
+     * phone (or in the app)? Then take it down; otherwise, or if the server
+     * can't be reached, remind again. Does network: never on the main thread.
+     */
+    static void nudge(Context ctx, Nudge n) {
+        boolean done = false;
+        try {
+            done = new JSONObject(request(ctx, "GET", n.check, null)).optBoolean("done");
+            reached(ctx, true, null);
+        } catch (IOException | JSONException ex) {
+            reached(ctx, false, ex.getMessage());
+        }
+        synchronized (Notifier.class) {
+            try {
+                JSONObject state = NotifyStore.state(ctx);
+                JSONObject e = wanted(ctx, state).get(n.id);
+                // Still the same one, and not dealt with on this phone while we asked?
+                if (e != null && !e.isNull("at") && n.key.equals(n.id + "@" + e.optLong("at")) && !child(state, "fired").has(n.key + END)) {
+                    if (done) end(ctx, state, e, n.key, "Someone already did it, taken down: ");
+                    else remindAgain(ctx, state, e);
+                }
+                NotifyStore.setState(ctx, state);
+            } catch (Exception ex) {
+                Log.w(TAG, "nudge failed", ex);
+                NotifyStore.log(ctx, "Something went wrong reminding again: " + ex);
+            }
+        }
+        reconcile(ctx);
+    }
+
+    /** Show it again as a new notification, so it makes its sound again. */
+    private static void remindAgain(Context ctx, JSONObject state, JSONObject e) throws JSONException {
+        String id = e.optString("id");
+        JSONObject again = new JSONObject(e.toString());
+        if (e.has("againBody")) again.put("body", e.optString("againBody"));
+        cancelNotification(ctx, id);
+        boolean ok = show(ctx, again, e.optBoolean("quiet"));
+        // (Remembered as the plain entry, so reconcile doesn't swap the words back.)
+        if (ok) child(state, "shown").put(id, hash(e));
+        NotifyStore.log(ctx, (ok ? "Reminded again: " : "Android would not show: ") + e.optString("title"));
+    }
+
+    /** Take it down for good: no more nudges, and it doesn't come back after a restart. */
+    private static void end(Context ctx, JSONObject state, JSONObject e, String key, String why) throws JSONException {
+        String id = e.optString("id");
+        cancelNotification(ctx, id);
+        child(state, "shown").remove(id);
+        child(state, "fired").put(key + END, System.currentTimeMillis());
+        NotifyStore.log(ctx, why + e.optString("title"));
+    }
+
+    private static String hash(JSONObject e) {
+        return Integer.toHexString(e.toString().hashCode());
     }
 
     /**
@@ -243,7 +391,12 @@ public final class Notifier {
             child(state, "shown").remove(id);
             // A reminder swiped away is just out of the way: nothing changes.
             boolean matters = !swiped || ongoing;
-            if (matters) child(state, "suppressed").put(id, System.currentTimeMillis());
+            if (matters) {
+                child(state, "suppressed").put(id, System.currentTimeMillis());
+                // Dealt with: no reminding again, even before the server hears.
+                cancelAlarm(ctx, id);
+                child(state, "alarms").remove(id);
+            }
             NotifyStore.setState(ctx, state);
             if (!matters) return false;
             JSONObject post = postJson == null ? null : new JSONObject(postJson);
@@ -341,6 +494,13 @@ public final class Notifier {
                 sent.add(ev.optString("uid"));
                 reached(ctx, true, null);
                 NotifyStore.log(ctx, "Told the server: " + ev.optString("action") + " on " + ev.optString("title", ev.optString("id")));
+            } catch (Refused e) {
+                reached(ctx, true, null);
+                if (!e.forGood()) break;
+                // (Done on something deleted since, say.) Asking again won't
+                // change the answer, and it mustn't hold up what comes after it.
+                sent.add(ev.optString("uid"));
+                NotifyStore.log(ctx, "The server turned down " + ev.optString("action") + " on " + ev.optString("title", ev.optString("id")) + " (" + e.status + ")");
             } catch (IOException e) {
                 reached(ctx, false, e.getMessage());
                 break; // no server right now; the rest would fail too
@@ -355,7 +515,7 @@ public final class Notifier {
                     JSONObject ev = events.optJSONObject(i);
                     if (ev != null && sent.contains(ev.optString("uid"))) ev.put("sent", true);
                 }
-                NotifyStore.setEvents(ctx, events);
+                NotifyStore.setEvents(ctx, NotifyStore.withoutOldSent(events));
             } catch (JSONException e) {
                 Log.w(TAG, "marking events sent failed", e);
             }
@@ -423,6 +583,21 @@ public final class Notifier {
         }
     }
 
+    /** The server answered, but not with a yes. */
+    static final class Refused extends IOException {
+        final int status;
+
+        Refused(int status) {
+            super("server answered " + status);
+            this.status = status;
+        }
+
+        /** Asking again won't change the answer (gone, not allowed, bad request). */
+        boolean forGood() {
+            return status >= 400 && status < 500 && status != 408 && status != 429;
+        }
+    }
+
     /** One request to the Family Track server; throws unless it answers 2xx. */
     static String request(Context ctx, String method, String path, String body) throws IOException {
         String server = NotifyStore.server(ctx);
@@ -443,7 +618,7 @@ public final class Notifier {
                 }
             }
             int status = c.getResponseCode();
-            if (status < 200 || status >= 300) throw new IOException("server answered " + status);
+            if (status < 200 || status >= 300) throw new Refused(status);
             try (InputStream in = c.getInputStream()) {
                 ByteArrayOutputStream buf = new ByteArrayOutputStream();
                 byte[] chunk = new byte[8192];
