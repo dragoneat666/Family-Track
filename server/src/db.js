@@ -353,6 +353,50 @@ const MIGRATIONS = [
     done_at INTEGER NOT NULL,
     PRIMARY KEY (reminder_id, occ, profile_id)
   );
+  `,
+  // The family calendar. Days are 'YYYY-MM-DD' and times 'HH:MM', in the
+  // server's local time; times are null for all-day events. end_day is the
+  // last day (the same as start_day unless it spans days).
+  //   kind       'event' | 'birthday' (title is then the person's name)
+  //   repeat     JSON null or { every: 'day'|'week'|'month'|'year', n, by: 'date'|'weekday', until }
+  //   people     JSON account ids it's about (its colour); [] = the whole family
+  //   remind     JSON minutes before it starts to remind (all day: before midnight that day)
+  //   remind_who JSON { groups: ['adults'] } or { ids: [grown-up ids] }
+  //   sched_at   when its times or reminders last changed: reminders due before
+  //              then aren't sent late
+  // event_changes: one date of a repeating event skipped or changed. occ is
+  // the day it would have been; data holds what's different (JSON).
+  `
+  CREATE TABLE events (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL DEFAULT 'event',
+    title TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    place TEXT NOT NULL DEFAULT '',
+    all_day INTEGER NOT NULL DEFAULT 0,
+    start_day TEXT NOT NULL,
+    start_time TEXT,
+    end_day TEXT NOT NULL,
+    end_time TEXT,
+    repeat TEXT,
+    people TEXT NOT NULL DEFAULT '[]',
+    grownups_only INTEGER NOT NULL DEFAULT 0,
+    remind TEXT NOT NULL DEFAULT '[]',
+    remind_who TEXT NOT NULL,
+    birth_year INTEGER,
+    sched_at INTEGER NOT NULL,
+    created_by INTEGER,
+    created_at INTEGER NOT NULL,
+    changed_at INTEGER NOT NULL
+  );
+  CREATE TABLE event_changes (
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    occ TEXT NOT NULL,
+    skipped INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL DEFAULT '{}',
+    sched_at INTEGER NOT NULL,
+    PRIMARY KEY (event_id, occ)
+  );
   `
 ];
 

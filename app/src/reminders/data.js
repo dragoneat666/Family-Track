@@ -129,7 +129,7 @@ export function daysText(days) {
 
 const andList = (names) => (names.length <= 2 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 
-// { all } -> "Everyone"; { groups: ['adults'], ids: [3] } -> "Adults and Oliver"
+// { all } -> "Everyone"; { groups: ['adults'], ids: [3] } -> "Adults and Sam"
 export function whoText(who, people) {
   if (!who || who.all) return 'Everyone';
   const names = [];

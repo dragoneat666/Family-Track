@@ -19,6 +19,7 @@ import {
 import { pieceName, nextStep, stepLabel } from './steps.js';
 import { listsRouter, listPlan, dropPrivateLists } from './lists.js';
 import { remindersRouter, reminderPlan } from './reminders.js';
+import { calendarRouter, calendarPlan } from './calendar.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
 const app = express();
@@ -157,15 +158,18 @@ app.put('/api/me/pin', requireAdult, (req, res) => {
 
 app.get('/api/settings', (req, res) => res.json(getSettings()));
 
-// ---------- lists, reminders & notifications ----------
+// ---------- lists, reminders, calendar & notifications ----------
 
 app.use('/api/lists', requireAdult, listsRouter);
 app.use('/api/reminders', remindersRouter);
+app.use('/api/calendar', calendarRouter);
 
 // Everything this phone should be showing or have scheduled as Android
 // notifications for whoever is signed in on it. The app fetches it whenever
 // something changes and every so often in the background.
-app.get('/api/notify/plan', (req, res) => res.json({ entries: [...listPlan(req.account, req.device), ...reminderPlan(req.account)] }));
+app.get('/api/notify/plan', (req, res) => res.json({
+  entries: [...listPlan(req.account, req.device), ...reminderPlan(req.account), ...calendarPlan(req.account)]
+}));
 
 // ---------- kid side ----------
 
@@ -346,7 +350,10 @@ function brushProgress(profileId, c, settings) {
     WHERE s.profile_id = ? ORDER BY s.id DESC LIMIT 1`).get(profileId);
   const sessions = last
     ? db.prepare('SELECT finished_at FROM brush_sessions WHERE profile_id = ? AND completed = 1 AND id > ? ORDER BY id').all(profileId, last.id)
-    : db.prepare('SELECT finished_at FROM brush_sessions WHERE profile_id = ? AND completed = 1 AND finished_at >= ? ORDER BY id').all(profileId, c.started_at);
+    // (No piece yet: count from when they started building. A character row
+    // from the full list has no started_at of its own; the wait is per kid.)
+    : db.prepare('SELECT finished_at FROM brush_sessions WHERE profile_id = ? AND completed = 1 AND finished_at >= ? ORDER BY id')
+      .all(profileId, c.started_at ?? activeCharacter(profileId)?.started_at ?? '0');
   let anchor = last ? sqlTime(last.finished_at) : null;
   let counted = 0;
   for (const s of sessions) {

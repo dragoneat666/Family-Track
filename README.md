@@ -30,6 +30,10 @@ grown-ups' shared lists.
   - *Exercise partners*: any character can be one. Kids pick their partner in
     Settings, from the characters they've finished building plus any open to
     everyone, and get that partner's exercises.
+- **Calendar**: the family's appointments, practices and birthdays, with
+  US holidays. A month at the top and, below it, what's on day by day.
+  Events can repeat (every week, every other week, every month…) and remind
+  grown-ups on their phones beforehand. More under [Calendar](#calendar).
 - **Lists**: the grown-ups' shared lists, one per store plus anything else
   (to-dos, packing). Store lists are sorted by section in the order you walk
   that store and suggest groceries as you type; anything can be pinned to the
@@ -43,13 +47,15 @@ grown-ups' shared lists.
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
   Switching is in Settings.
-- **Grown-ups**: a home screen of buttons. **Lists** and **Reminders** are there; **Kids Setup**
+- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists** and **Reminders** are there; **Kids Setup**
   has each kid's day, then Characters, Brushing (rules and history),
   Exercises and Test (brushing and building that save nothing). Accounts and
   Devices are under the gear, in Settings. Everything except brushing also
   works in a browser (the web app is served by the server itself).
+- **Dark mode**: the app and the web app follow the phone's or computer's
+  light/dark setting.
 
-Later: calendar, contacts, meal plans and recipes, chores and allowance.
+Later: contacts, meal plans and recipes, chores and allowance.
 
 ## Privacy
 
@@ -319,6 +325,52 @@ if so takes the notification down instead (with no server in reach, it
 reminds anyway). A kid's tablet asks once for permission to show
 notifications, when the app opens there with a reminder for that kid today.
 Times are in the server's time zone.
+
+## Calendar
+
+The **Calendar** button, first on a grown-up's home screen (it says what's
+next today, or tomorrow). The calendar fills the screen:
+
+- **The month** at the top, Sunday first, with a coloured dot under a day for
+  each thing on it. Tap a day to see from there; the handle under it folds
+  the month to one week. ‹ › change month; the month's name goes back to
+  today.
+- **What's on**, day by day from the day picked: each of the next seven days
+  (with "Nothing planned" when that's so), then only the days with something
+  on. All-day things come first, then by time. Something that lasts several
+  days shows on each of them.
+- **Today**, **+ Add** and **Show** along the bottom. Show hides or brings
+  back each person's things (things for the whole family always show) and
+  holidays, on that device.
+
+Tap something for its details, and to change it, skip just that date, change
+just that date (its time, place, name or note), or delete it.
+
+An **event** has a name, who it's for (the whole family, or some of it: its
+colour is the first person's), a start and end (a time, or all day; it can
+last several days), how it repeats (every day, every week, every 2 weeks,
+every month on the same date or on, say, the 2nd Tuesday, or every year;
+until a date if you like), where, a note, and **Grown-ups only** to keep it
+from the kids. A **birthday** is a name (or someone in the family), the date
+(with the year they were born, to show how old they turn), every year, on an
+orange card.
+
+**Reminders** go to grown-ups' phones (all of them, or the ones picked):
+by default a day before and 30 minutes before; for all-day things and
+birthdays, 6 PM the evening before (or 8 AM that day, 2 days or a week
+before). Like the other reminders they're alarms on the phone, set a week
+ahead, so they go off with no connection; one made too late for a reminder
+time doesn't pop up late. Kids see the calendar but get no reminders.
+
+US holidays (New Year's Day, Martin Luther King Jr. Day, Valentine's Day,
+Presidents' Day, St. Patrick's Day, Easter, Mother's Day, Memorial Day,
+Father's Day, Juneteenth, Independence Day, Labor Day, Columbus Day,
+Halloween, Veterans Day, Thanksgiving, Christmas Eve, Christmas and New
+Year's Eve) are worked out by the app; nothing is stored for them.
+
+The server works out every date (`server/src/calendar.js`); the app keeps
+from a month back to about a year ahead on the device, so the calendar shows
+with no server in reach, and fetches older months when you look at them.
 
 ## Developing
 

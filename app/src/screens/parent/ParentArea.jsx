@@ -13,6 +13,8 @@ import { startLists, stopLists, useLists } from '../../lists/store.js';
 import { notify } from '../../notify.js';
 import RemindersScreen from '../../reminders/RemindersScreen.jsx';
 import { useReminders, refreshReminders, todayNote } from '../../reminders/data.js';
+import CalendarScreen from '../../calendar/CalendarScreen.jsx';
+import { useCalendar, refreshCalendar, nextNote } from '../../calendar/data.js';
 
 // Every screen a grown-up can open from a button. `under` is where its Back
 // button goes: Home has the family's things, Kids Setup has what the kids'
@@ -37,6 +39,12 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
     setScreen('lists');
     setFullScreen(<ListView key={`${listId}:${itemId || ''}`} listId={listId} focusItem={itemId} onExit={() => setFullScreen(null)} />);
   }
+  // open: { event, occ } to show one date of an event.
+  function openCalendar(open) {
+    setFullScreen(
+      <CalendarScreen key={open ? `${open.event}:${open.occ}` : 'calendar'} account={account} open={open} onAuthLost={onAuthLost} onExit={() => setFullScreen(null)} />
+    );
+  }
 
   // Lists are kept up to date the whole time a grown-up is signed in, so
   // they're ready offline and pins and reminders stay right.
@@ -47,6 +55,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
   // Tapping a notification opens what it's about.
   useEffect(() => notify.onTap((tap) => {
     if (tap.screen === 'list') openList(tap.list, tap.item);
+    else if (tap.screen === 'calendar') openCalendar({ event: tap.event, occ: tap.occ });
     else if (tap.screen === 'reminders') {
       setFullScreen(null);
       setScreen('reminders');
@@ -68,7 +77,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
           <h1>Hi {account.name}</h1>
           <button className="btn gear" onClick={onSettings} title="Settings">⚙️</button>
         </header>
-        <Home open={setScreen} />
+        <Home open={setScreen} openCalendar={() => openCalendar()} />
       </div>
     );
   }
@@ -101,13 +110,15 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
 
 // The buttons a grown-up starts from. Each says a little about what's
 // behind it when there's something to say.
-function Home({ open }) {
+function Home({ open, openCalendar }) {
   const v = useLists();
   const reminders = useReminders();
+  const calendar = useCalendar();
   const [kids, setKids] = useState(null);
   useEffect(() => {
     api.get('/api/parent/overview').then(setKids).catch(() => { /* no server right now: the button still works */ });
     refreshReminders().catch(() => {});
+    refreshCalendar().catch(() => {});
   }, []);
 
   const left = [...v.items.values()].filter((i) => !i.checked).length;
@@ -116,6 +127,7 @@ function Home({ open }) {
     <main className="parent-main stack">
       <SyncNote v={v} />
       <div className="home-grid">
+        <Tile tone="calendar" emoji="📅" title="Calendar" onClick={openCalendar} note={nextNote(calendar.data)} />
         <Tile tone="lists" emoji="🛒" title="Lists" onClick={() => open('lists')}
           note={v.ready ? (left ? `${left} ${left === 1 ? 'thing' : 'things'} left` : 'Nothing left') : ''} />
         <Tile tone="reminders" emoji="⏰" title="Reminders" onClick={() => open('reminders')} note={todayNote(reminders.data)} />
