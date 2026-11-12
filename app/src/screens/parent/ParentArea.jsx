@@ -18,7 +18,9 @@ import { useCalendar, refreshCalendar, nextNote } from '../../calendar/data.js';
 import ContactsScreen from '../../contacts/ContactsScreen.jsx';
 import { useContacts, refreshContacts } from '../../contacts/data.js';
 import RecipesScreen from '../../recipes/RecipesScreen.jsx';
-import { useRecipes, refreshRecipes } from '../../recipes/data.js';
+import { refreshRecipes } from '../../recipes/data.js';
+import { useMeals, loadMeals, tonightNote } from '../../recipes/meals.js';
+import { todayDay, addDays } from '../../calendar/data.js';
 
 // Every screen a grown-up can open from a button. `under` is where its Back
 // button goes: Home has the family's things, Kids Setup has what the kids'
@@ -27,7 +29,7 @@ const SCREENS = {
   lists: { emoji: '🛒', title: 'Lists', under: 'home' },
   reminders: { emoji: '⏰', title: 'Reminders', under: 'home' },
   contacts: { emoji: '📇', title: 'Contacts', under: 'home' },
-  recipes: { emoji: '🍳', title: 'Recipes', under: 'home' },
+  recipes: { emoji: '🍽️', title: 'Meals', under: 'home' },
   kids: { emoji: '🧒', title: 'Kids Setup', under: 'home' },
   characters: { emoji: '🤖', title: 'Characters', under: 'kids', note: 'What the kids build and dress up' },
   brushing: { emoji: '🪥', title: 'Brushing', under: 'kids', note: 'Rules, history and each kid’s setting' },
@@ -123,7 +125,7 @@ function Home({ open, openCalendar }) {
   const reminders = useReminders();
   const calendar = useCalendar();
   const contacts = useContacts();
-  const recipes = useRecipes();
+  const meals = useMeals();
   const [kids, setKids] = useState(null);
   useEffect(() => {
     api.get('/api/parent/overview').then(setKids).catch(() => { /* no server right now: the button still works */ });
@@ -131,6 +133,7 @@ function Home({ open, openCalendar }) {
     refreshCalendar().catch(() => {});
     refreshContacts().catch(() => {});
     refreshRecipes().catch(() => {});
+    loadMeals(todayDay(), addDays(todayDay(), 6)).catch(() => {});
   }, []);
 
   const left = [...v.items.values()].filter((i) => !i.checked).length;
@@ -145,8 +148,7 @@ function Home({ open, openCalendar }) {
         <Tile tone="reminders" emoji="⏰" title="Reminders" onClick={() => open('reminders')} note={todayNote(reminders.data)} />
         <Tile tone="contacts" emoji="📇" title="Contacts" onClick={() => open('contacts')}
           note={contacts.data?.contacts.length ? `${contacts.data.contacts.length} ${contacts.data.contacts.length === 1 ? 'person' : 'people'}` : ''} />
-        <Tile tone="recipes" emoji="🍳" title="Recipes" onClick={() => open('recipes')}
-          note={recipes.data?.recipes.length ? `${recipes.data.recipes.length} ${recipes.data.recipes.length === 1 ? 'recipe' : 'recipes'}` : ''} />
+        <Tile tone="recipes" emoji="🍽️" title="Meals" onClick={() => open('recipes')} note={tonightNote(meals.days)} />
         <Tile tone="kids" emoji="🧒" title="Kids Setup" onClick={() => open('kids')}
           note={kids?.length ? `🪥 ${brushed} of ${kids.length} brushed today` : ''} />
       </div>

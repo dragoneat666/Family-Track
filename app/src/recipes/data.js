@@ -157,7 +157,7 @@ export function amountText(n, unit) {
   return whole ? `${whole}${best[0]}` : best[0] || '0';
 }
 
-const PLURAL = { cup: 'cups', quart: 'quarts', pint: 'pints', gallon: 'gallons', pinch: 'pinches', dash: 'dashes', clove: 'cloves', can: 'cans', jar: 'jars',
+export const PLURAL = { cup: 'cups', quart: 'quarts', pint: 'pints', gallon: 'gallons', pinch: 'pinches', dash: 'dashes', clove: 'cloves', can: 'cans', jar: 'jars',
   package: 'packages', stick: 'sticks', slice: 'slices', bunch: 'bunches', head: 'heads', sprig: 'sprigs', handful: 'handfuls', piece: 'pieces' };
 
 // One ingredient, scaled by `by` (1: just as it was written).

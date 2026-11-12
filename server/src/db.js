@@ -475,6 +475,22 @@ const MIGRATIONS = [
     created_at INTEGER NOT NULL,
     changed_at INTEGER NOT NULL
   );
+  `,
+  // The meal planner: a recipe (for how many) or a note ("Leftovers") for a
+  // day's breakfast, lunch or dinner. Deleting a recipe takes its meals too.
+  `
+  CREATE TABLE meals (
+    id INTEGER PRIMARY KEY,
+    day TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    recipe_id INTEGER REFERENCES recipes(id) ON DELETE CASCADE,
+    note TEXT NOT NULL DEFAULT '',
+    servings INTEGER,
+    sort INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER,
+    changed_at INTEGER NOT NULL
+  );
+  CREATE INDEX meals_day ON meals(day);
   `
 ];
 

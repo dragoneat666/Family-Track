@@ -844,6 +844,49 @@ input.line-text { font: inherit; padding: 4px 8px; }
 .rec-edit-nums input { width: 100%; }
 .rec-pick { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
 
+/* ---------- meal planner ---------- */
+
+.rec-tabs { gap: 8px; }
+.rec-tabs .cal-chip { font-size: 1rem; padding: 8px 16px; }
+.rec-do { gap: 8px; }
+.plan-top { gap: 10px; align-items: center; }
+.plan-nav { gap: 8px; align-items: center; }
+.plan-day { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
+.plan-day h3 { margin: 0; font-size: 1.05rem; }
+.plan-day.today { outline: 3px solid var(--brand); }
+.plan-day.past { opacity: 0.6; }
+.plan-day.weekend { background: color-mix(in srgb, #ffb020 10%, var(--card)); }
+.plan-slot { display: grid; grid-template-columns: 5.5em 1fr; gap: 8px; align-items: start; }
+.plan-slot-name { color: var(--muted); font-weight: 700; font-size: 0.9rem; padding-top: 10px; }
+.plan-meals { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.plan-meal {
+  display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; text-align: left; min-width: 0; max-width: 100%;
+  background: var(--soft); border: none; border-radius: 14px; font: inherit; color: var(--text); cursor: pointer;
+}
+.plan-meal-text { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.plan-thumb { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 10px; }
+.plan-note-icon { display: flex; align-items: center; justify-content: center; background: var(--card); font-size: 1.3rem; }
+.plan-empty { font-style: italic; }
+.plan-add { width: 36px; height: 36px; padding: 0; font-size: 1.2rem; }
+.plan-note input { flex: 1; min-width: 0; }
+.plan-pick { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 45vh; overflow: auto; }
+.plan-pick .plan-meal { width: 100%; }
+.plan-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.cal-chip.taken:not(.on) { border-style: dashed; }
+.grocery-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.grocery-rows li { display: flex; align-items: center; gap: 10px; }
+.grocery-rows li.off .grocery-text input { text-decoration: line-through; color: var(--muted); }
+.grocery-rows input[type=checkbox] { width: 22px; height: 22px; flex: 0 0 auto; }
+.grocery-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.grocery-text input { width: 100%; }
+.myday-dinner { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 16px; background: color-mix(in srgb, #f59e0b 16%, var(--card)); }
+.myday-dinner span { display: flex; flex-direction: column; }
+.myday-dinner small { font-weight: 800; color: var(--muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.04em; }
+.myday-dinner b { font-size: 1.15rem; }
+.myday-dinner.none b { color: var(--muted); font-weight: 700; }
+.myday-dinner-photo { width: 52px; height: 52px; border-radius: 12px; flex: 0 0 auto; }
+.myday-dinner-icon { font-size: 1.8rem; }
+
 /* ---------- dark mode ----------
    Follows the phone's or computer's light/dark setting. Most colours come
    from the variables at the top; the rest are the kids' screens' own

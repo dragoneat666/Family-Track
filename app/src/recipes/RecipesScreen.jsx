@@ -2,8 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Sheet } from '../lists/ui.jsx';
 import {
   useRecipes, refreshRecipes, saveRecipe, deleteRecipe, setRecipePhoto, removeRecipePhoto, importFromPage,
-  photoUrl, timesText, totalTime, timeText, ingredientText, yieldText, matches, topTags, stepsToText, ingredientsToText
+  timesText, totalTime, timeText, ingredientText, yieldText, matches, topTags, stepsToText, ingredientsToText
 } from './data.js';
+import { Photo } from './Photo.jsx';
+import { Planner, PlanRecipe, GrocerySheet } from './Planner.jsx';
+
+const TAB = 'ft.meals.tab';
+const savedTab = () => { try { return localStorage.getItem(TAB) || 'plan'; } catch { return 'plan'; } };
 
 const blank = () => ({
   title: '', description: '', servings: '', yield: '', prepMin: '', cookMin: '', totalMin: '',
@@ -14,13 +19,16 @@ const editable = (r) => ({
   ingredientsText: ingredientsToText(r.ingredients), stepsText: stepsToText(r.steps), tagsText: r.tags.join(', ')
 });
 
-// The family's recipes: find one, read it (scaled to how many are eating),
-// and for grown-ups (canEdit) add, change and import them.
+// Meals: the planner (what's for dinner this week) and the family's
+// recipes: find one, read it (scaled to how many are eating), and for
+// grown-ups (canEdit) add, change and import them.
 export default function RecipesScreen({ canEdit, onAuthLost }) {
   const { data, offline } = useRecipes();
+  const [tab, setTab] = useState(savedTab);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState(null);
-  const [open, setOpen] = useState(null); // recipe id
+  const [open, setOpenState] = useState(null); // { id, serves }
+  const setOpen = (id, serves) => setOpenState(id == null ? null : { id, serves });
   const [editing, setEditing] = useState(null); // a recipe being made or changed
   const [importing, setImporting] = useState(false);
 
@@ -32,7 +40,11 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
   // A new recipe or screen starts at the top.
-  useEffect(() => { window.scrollTo(0, 0); }, [open]);
+  useEffect(() => { window.scrollTo(0, 0); }, [open?.id, tab]);
+  const pickTab = (t) => {
+    setTab(t);
+    try { localStorage.setItem(TAB, t); } catch { /* fine */ }
+  };
 
   const tags = useMemo(() => (data ? topTags(data.recipes) : []), [data]);
 
@@ -42,7 +54,7 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
       : <div className="spinner" />;
   }
 
-  const opened = data.recipes.find((r) => r.id === open);
+  const opened = open && data.recipes.find((r) => r.id === open.id);
   const editor = editing && (
     <RecipeEditor start={editing} offline={offline} onClose={() => setEditing(null)}
       onSaved={(id) => { setEditing(null); setOpen(id); }}
@@ -52,15 +64,32 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
   if (opened) {
     return (
       <>
-        <RecipeView key={opened.id} r={opened} canEdit={canEdit} offline={offline} onBack={() => setOpen(null)} onEdit={() => setEditing(editable(opened))} />
+        <RecipeView key={`${opened.id}:${open.serves}`} r={opened} startServes={open.serves} canEdit={canEdit} offline={offline}
+          backTo={tab === 'plan' ? 'Meals' : 'Recipes'} onBack={() => setOpen(null)} onEdit={() => setEditing(editable(opened))} />
         {editor}
       </>
+    );
+  }
+
+  const tabs = (
+    <div className="row rec-tabs">
+      <button className={`cal-chip${tab === 'plan' ? ' on' : ''}`} onClick={() => pickTab('plan')}>📅 Plan</button>
+      <button className={`cal-chip${tab === 'recipes' ? ' on' : ''}`} onClick={() => pickTab('recipes')}>📖 Recipes</button>
+    </div>
+  );
+  if (tab === 'plan') {
+    return (
+      <div className="stack rec-screen">
+        {tabs}
+        <Planner offline={offline} onAuthLost={onAuthLost} onOpenRecipe={setOpen} />
+      </div>
     );
   }
 
   const shown = data.recipes.filter((r) => matches(r, q.trim()) && (!tag || r.tags.includes(tag)));
   return (
     <div className="stack rec-screen">
+      {tabs}
       {offline && <p className="sync-note">📴 Can't reach the server: these are the recipes from last time.{canEdit ? ' Changes need the server.' : ''}</p>}
 
       <div className="row rec-top">
@@ -106,27 +135,12 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
   );
 }
 
-// A recipe's photo, fetched with the sign-in (and kept on the device).
-export function Photo({ src, className }) {
-  const [url, setUrl] = useState(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let live = true;
-    setUrl(null);
-    setFailed(false);
-    if (src) photoUrl(src).then((u) => live && setUrl(u), () => live && setFailed(true));
-    return () => { live = false; };
-  }, [src]);
-  return (
-    <span className={`rec-photo ${className || ''}`}>
-      {url ? <img src={url} alt="" /> : <span className="rec-photo-none">{src && !failed ? '' : '🍽️'}</span>}
-    </span>
-  );
-}
-
-function RecipeView({ r, canEdit, offline, onBack, onEdit }) {
+function RecipeView({ r, startServes, canEdit, offline, backTo, onBack, onEdit }) {
   // How many it's for (when the recipe says), or how many times over.
-  const [serves, setServes] = useState(r.servings || null);
+  const [serves, setServes] = useState(r.servings ? startServes || r.servings : null);
+  const [planning, setPlanning] = useState(false);
+  const [planned, setPlanned] = useState(false);
+  const [shopping, setShopping] = useState(false);
   const [times, setTimes] = useState(1);
   const by = r.servings ? serves / r.servings : times;
   const [crossed, setCrossed] = useState(new Set()); // ingredients tapped as got out
@@ -136,9 +150,11 @@ function RecipeView({ r, canEdit, offline, onBack, onEdit }) {
   return (
     <div className="stack rec-view">
       <div className="row spread">
-        <button data-back className="btn" onClick={onBack}>← Recipes</button>
+        <button data-back className="btn" onClick={onBack}>← {backTo}</button>
         {canEdit && <button className="btn" disabled={offline} onClick={onEdit}>✏️ Change</button>}
       </div>
+      {planning && <PlanRecipe recipe={r} serves={serves} onClose={(ok) => { setPlanning(false); if (ok) setPlanned(true); }} />}
+      {shopping && <GrocerySheet title={r.title} sources={[{ recipe: r, by }]} onClose={() => setShopping(false)} />}
       {r.photo && <Photo src={r.photo} className="rec-hero" />}
       <h2 className="rec-title">{r.title}</h2>
       {r.description && <p className="rec-desc">{r.description}</p>}
@@ -149,6 +165,13 @@ function RecipeView({ r, canEdit, offline, onBack, onEdit }) {
         </div>
       )}
 
+      {canEdit && (
+        <div className="row wrap rec-do">
+          <button className="btn" disabled={offline} onClick={() => setPlanning(true)}>📅 Plan it</button>
+          <button className="btn" disabled={!r.ingredients.some((i) => !i.section)} onClick={() => setShopping(true)}>🛒 Add to grocery list</button>
+          {planned && <span className="muted small">✓ Planned</span>}
+        </div>
+      )}
       {r.ingredients.length > 0 && (
         <section className="card stack rec-section">
           <div className="row spread wrap">

@@ -35,7 +35,8 @@ grown-ups' shared lists.
   Events can repeat (every week, every other week, every month…) and remind
   grown-ups on their phones beforehand. More under [Calendar](#calendar).
 - **My Day** (kids): a card on each kid's home screen with today's things
-  and their reminders (with **Done**), and what's on tomorrow; tap it for
+  and their reminders (with **Done**), what's for dinner, and what's on
+  tomorrow; tap it for
   **My Week**. More under [My Day and My Week](#my-day-and-my-week).
 - **Contacts**: the family's phone numbers, emails, addresses and
   birthdays. Grown-ups can call, text, email or map from there, and fill one
@@ -44,9 +45,11 @@ grown-ups' shared lists.
   up. Birthdays go on the calendar by themselves, for
   everyone, just the kids, just grown-ups or nobody. More under
   [Contacts](#contacts).
-- **Recipes**: the family's recipes with photos, amounts that scale to
-  how many are eating, and imports from recipe web pages. More under
-  [Recipes](#recipes).
+- **Meals**: a planner for the week's dinners (and breakfasts and lunches
+  if wanted), the family's recipes with photos and amounts that scale to
+  how many are eating, imports from recipe web pages, and a button that
+  puts what a recipe or the whole week needs on a grocery list. More under
+  [Meals and recipes](#meals-and-recipes).
 - **Lists**: the grown-ups' shared lists, one per store plus anything else
   (to-dos, packing). Store lists are sorted by section in the order you walk
   that store and suggest groceries as you type; anything can be pinned to the
@@ -60,7 +63,7 @@ grown-ups' shared lists.
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
   Switching is in Settings.
-- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists**, **Reminders**, **Contacts** and **Recipes** are there; **Kids Setup**
+- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists**, **Reminders**, **Contacts** and **Meals** are there; **Kids Setup**
   has each kid's day, then Characters, Brushing (rules and history),
   Exercises and Test (brushing and building that save nothing). Accounts and
   Devices are under the gear, in Settings. Everything except brushing also
@@ -68,8 +71,7 @@ grown-ups' shared lists.
 - **Dark mode**: the app and the web app follow the phone's or computer's
   light/dark setting.
 
-Later: a meal planner and cooking mode (for recipes), a family tree, chores
-and allowance.
+Later: cooking mode (for recipes), a family tree, chores and allowance.
 
 ## Privacy
 
@@ -470,9 +472,33 @@ a name and a birthday (a friend of the kids) is fine.
 up: no calling or texting from there, and no emails, notes or grown-ups-only
 contacts.
 
-## Recipes
+## Meals and recipes
 
-The **Recipes** button on a grown-up's home screen: every recipe with its
+The **Meals** button on a grown-up's home screen (it says what's for dinner
+tonight) has two parts: **📅 Plan** and **📖 Recipes**.
+
+### The plan
+
+The next seven days (‹ › for other weeks), each with its dinner, or "Not
+picked yet". **Breakfast and lunch too** shows those as well (they always
+show on a day that has one planned). **+** adds a recipe, or something
+quick: Leftovers, Easy night, Takeout, or anything typed. Tapping a planned
+meal opens its recipe (at the number it's planned for), moves it to another
+day or meal, changes how many it's for, or takes it off. A recipe's page
+also has **📅 Plan it**.
+
+**🛒 Add this week's meals to a grocery list** (or **🛒 Add to grocery list**
+on a recipe, at the amounts shown) lists everything the recipes need, with
+the same things added up ("Ground beef (2⅓ lb)", "Pasta sauce (2 jars)").
+Untick what's in the house (salt, pepper and water start unticked, and so
+does anything already on the list), change any line, pick the list, and add.
+
+Kids see dinner (only dinner) in **My Day** and each day of **My Week**,
+with the recipe's photo.
+
+### Recipes
+
+**📖 Recipes**: every recipe with its
 photo, a search that also looks at ingredients and tags, and the most used
 tags to tap. Recipes are kept on the device, so they open with no
 connection (photos too, once seen).

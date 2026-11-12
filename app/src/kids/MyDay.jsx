@@ -3,9 +3,11 @@ import { api } from '../api.js';
 import { timeText } from '../reminders/data.js';
 import { holidaysBetween } from '../calendar/holidays.js';
 import { todayDay, addDays, fromDay, daysBetween, WEEKDAYS, MONTHS, ageOn, itemKey } from '../calendar/data.js';
+import { Photo } from '../recipes/Photo.jsx';
 
 // What a kid sees of the calendar: My Day on their home screen (today's
-// things and their reminders, with Done) and My Week (the next seven days).
+// things and their reminders, with Done, and what's for dinner) and My Week
+// (the next seven days).
 // Their own things, the whole family's, everyone's birthdays and holidays;
 // never grown-ups-only ones (the server leaves those out for kids). The
 // last answer is kept on the tablet, so it still shows with no server.
@@ -29,7 +31,9 @@ function useMyDay(profile) {
         api.get(`/api/calendar?from=${day}&to=${addDays(day, WEEK - 1)}`, { timeout: 8000 }),
         api.get('/api/reminders/today', { timeout: 8000 })
       ]);
-      const d = { day, events: cal.events, items: cal.items, people: cal.people, reminders: rem.reminders };
+      // (Dinner is extra: no planner on the server yet is fine.)
+      const meals = await api.get(`/api/meals?from=${day}&to=${addDays(day, WEEK - 1)}`, { timeout: 8000 }).then((r) => r.meals, () => null);
+      const d = { day, events: cal.events, items: cal.items, people: cal.people, reminders: rem.reminders, meals };
       try { localStorage.setItem(key, JSON.stringify(d)); } catch { /* fine */ }
       setData(d);
     } catch { /* no server right now: what's kept */ }
@@ -125,6 +129,18 @@ function ReminderRow({ r, onDone }) {
   );
 }
 
+// What's for dinner that day ("Not picked yet" when nothing's planned).
+function Dinner({ data, day }) {
+  if (!data?.meals) return null;
+  const dinner = data.meals.filter((m) => m.day === day && m.slot === 'dinner');
+  return (
+    <div className={`myday-dinner${dinner.length ? '' : ' none'}`}>
+      {dinner.find((m) => m.thumb) ? <Photo src={dinner.find((m) => m.thumb).thumb} className="myday-dinner-photo" /> : <span className="myday-dinner-icon">🍽️</span>}
+      <span><small>Dinner</small><b>{dinner.length ? dinner.map((m) => m.title).join(' + ') : 'Not picked yet'}</b></span>
+    </div>
+  );
+}
+
 // Things and reminders in one list, by time (all-day things first).
 function Rows({ things, reminders, day, reload, empty }) {
   const at = (it) => (it.holiday || it.ev?.kind === 'birthday' || it.allDay || it.startDay < day ? '' : it.startTime);
@@ -156,6 +172,7 @@ export function MyDayCard({ profile, onWeek }) {
       {data && (
         <Rows things={things} reminders={reminders} day={today} reload={reload} empty="Nothing planned today" />
       )}
+      <Dinner data={data} day={today} />
       {tomorrow.length > 0 && (
         <p className="myday-next">Tomorrow: {tomorrow.slice(0, 2).map((it) => (it.ev?.kind === 'birthday' ? `🎂 ${it.title}` : it.title)).join(', ')}{tomorrow.length > 2 ? '…' : ''}</p>
       )}
@@ -188,6 +205,7 @@ export function MyWeek({ profile, onExit }) {
               <section key={d} className={cls.join(' ')}>
                 <h2><span>{dayName(d, today)}</span><small>{dayName(d, today) === WEEKDAYS[weekday] ? dateText(d) : `${WEEKDAYS[weekday]}, ${dateText(d)}`}</small></h2>
                 <Rows things={things} reminders={reminders} day={d} reload={reload} empty="Nothing planned" />
+                <Dinner data={data} day={d} />
               </section>
             );
           })}
