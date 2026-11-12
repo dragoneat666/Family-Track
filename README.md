@@ -90,6 +90,13 @@ Settings by environment variable: `TZ` (when "today" starts),
 `BUILD_MAX_TRIANGLES` (default 80000), `RIGGED_MAX_TRIANGLES` (50000),
 `TEXTURE_SIZE` (2048). Lower them for slow tablets.
 
+**Backups:** every night at 1:30 (and when the server starts, if there's
+none from the last day) the server saves a full copy of the database in
+`data/backups` as `family-track-YYYY-MM-DD.db`, and keeps two weeks of them.
+To go back to one, stop the server and put it in place of
+`data/family-track.db`. The 3D files and voice recordings (`data/characters`)
+are not in it.
+
 ## The Android app
 
 Install it from the server: open `http://<server>:14200/download` in the

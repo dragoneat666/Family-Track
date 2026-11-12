@@ -20,6 +20,7 @@ import { pieceName, nextStep, stepLabel } from './steps.js';
 import { listsRouter, listPlan, dropPrivateLists } from './lists.js';
 import { remindersRouter, reminderPlan } from './reminders.js';
 import { calendarRouter, calendarPlan } from './calendar.js';
+import { startBackups } from './backup.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
 const app = express();
@@ -1260,3 +1261,4 @@ fs.rmSync(TMP_DIR, { recursive: true, force: true });
 fs.mkdirSync(TMP_DIR, { recursive: true });
 
 app.listen(PORT, () => console.log(`Family Track server ${VERSION} on port ${PORT}`));
+startBackups();
