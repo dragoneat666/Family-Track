@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Sheet } from '../lists/ui.jsx';
 import {
-  useRecipes, refreshRecipes, saveRecipe, deleteRecipe, setRecipePhoto, removeRecipePhoto, importFromPage, findInApp, importFromApp,
+  useRecipes, refreshRecipes, saveRecipe, deleteRecipe, setRecipePhoto, removeRecipePhoto, importFromPage,
   photoUrl, timesText, totalTime, timeText, ingredientText, yieldText, matches, topTags, stepsToText, ingredientsToText
 } from './data.js';
 
@@ -70,7 +70,7 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
       {canEdit && (
         <div className="row wrap rec-bar">
           <button className="btn" disabled={offline} onClick={() => setImporting(true)}>📥 Import</button>
-          <span className="muted small">from a recipe web page, Mealie or Tandoor</span>
+          <span className="muted small">from a recipe web page</span>
         </div>
       )}
       {tags.length > 0 && (
@@ -95,7 +95,7 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
         ))}
         {!shown.length && (
           <li className="rec-empty muted">
-            {q.trim() || tag ? 'No recipes like that' : canEdit ? 'No recipes yet. + Add one, or 📥 Import them.' : 'No recipes yet.'}
+            {q.trim() || tag ? 'No recipes like that' : canEdit ? 'No recipes yet. + Add one, or 📥 Import one from a web page.' : 'No recipes yet.'}
           </li>
         )}
       </ul>
@@ -306,25 +306,11 @@ function RecipeEditor({ start, offline, onClose, onSaved, onDeleted }) {
   );
 }
 
-const APPS = {
-  mealie: { name: 'Mealie', token: "In Mealie: your profile picture → API Tokens → give it a name → Generate, then copy it." },
-  tandoor: { name: 'Tandoor', token: 'In Tandoor: your name (top right) → Settings → API → New token (scope read is enough), then copy it.' }
-};
-const keptAddress = (source) => { try { return localStorage.getItem(`ft.recipes.import.${source}`) || ''; } catch { return ''; } };
-const keepAddress = (source, url) => { try { localStorage.setItem(`ft.recipes.import.${source}`, url); } catch { /* fine */ } };
-
-// Bring recipes in: from a web page's address, or all at once from the
-// family's Mealie or Tandoor (with an API token used just for this).
+// Bring a recipe in from a web page's address.
 function ImportSheet({ onClose, onOpen }) {
-  const [from, setFrom] = useState('page');
   return (
-    <Sheet title="Import recipes" onClose={onClose} closeLabel="Close" wide>
-      <div className="row wrap">
-        {[['page', '🌐 Web page'], ['mealie', 'Mealie'], ['tandoor', 'Tandoor']].map(([k, label]) => (
-          <button key={k} className={`cal-chip${from === k ? ' on' : ''}`} onClick={() => setFrom(k)}>{label}</button>
-        ))}
-      </div>
-      {from === 'page' ? <FromPage onOpen={onOpen} /> : <FromApp key={from} source={from} onDone={onClose} />}
+    <Sheet title="Import a recipe" onClose={onClose} closeLabel="Close" wide>
+      <FromPage onOpen={onOpen} />
     </Sheet>
   );
 }
@@ -355,107 +341,6 @@ function FromPage({ onOpen }) {
       <button className="btn primary" disabled={busy || !/^https?:\/\/\S+\.\S+/i.test(url.trim())} onClick={go}>
         {busy ? 'Reading the page…' : '📥 Import it'}
       </button>
-    </div>
-  );
-}
-
-function FromApp({ source, onDone }) {
-  const app = APPS[source];
-  const [url, setUrl] = useState(keptAddress(source));
-  const [token, setToken] = useState('');
-  const [found, setFound] = useState(null);
-  const [picked, setPicked] = useState(new Set());
-  const [busy, setBusy] = useState('');
-  const [error, setError] = useState('');
-  const [results, setResults] = useState(null);
-
-  async function find() {
-    setBusy('Looking…');
-    setError('');
-    try {
-      const r = await findInApp(source, url.trim(), token.trim());
-      keepAddress(source, url.trim());
-      setFound(r.recipes);
-      setPicked(new Set(r.recipes.filter((x) => !x.have).map((x) => x.id)));
-    } catch (e) {
-      setError(e.message);
-    }
-    setBusy('');
-  }
-
-  async function bring() {
-    setBusy(`Bringing over ${picked.size} ${picked.size === 1 ? 'recipe' : 'recipes'} and their photos…`);
-    setError('');
-    try {
-      const r = await importFromApp(source, url.trim(), token.trim(), [...picked]);
-      setResults(r.results);
-      setToken('');
-    } catch (e) {
-      setError(e.message);
-    }
-    setBusy('');
-  }
-
-  if (results) {
-    const good = results.filter((x) => x.recipe && !x.already);
-    const bad = results.filter((x) => x.error);
-    const noPhoto = good.filter((x) => !x.photo);
-    return (
-      <div className="stack">
-        <p>✓ Brought over {good.length} {good.length === 1 ? 'recipe' : 'recipes'} from {app.name}.</p>
-        {noPhoto.length > 0 && <p className="muted small">No photo came with: {noPhoto.map((x) => x.title).join(', ')}.</p>}
-        {bad.length > 0 && (
-          <div className="stack tight">
-            <b>Couldn't bring over</b>
-            {bad.map((x) => <p key={x.id} className="con-check-line">{found.find((f) => f.id === x.id)?.title || x.id}: {x.error}</p>)}
-          </div>
-        )}
-        <p className="muted small">Family Track didn't keep the token. You can delete it in {app.name} now.</p>
-        <button className="btn primary" onClick={onDone}>Done</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="stack">
-      {!found && (
-        <>
-          <label>{app.name}'s address <span className="muted small">(as the server reaches it)</span>
-            <input type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://…:port" />
-          </label>
-          <label>API token
-            <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} />
-          </label>
-          <p className="muted small">{app.token} It's only used for this import and isn't kept.</p>
-          {error && <p className="error">{error}</p>}
-          <button className="btn primary" disabled={!!busy || !url.trim() || !token.trim()} onClick={find}>{busy || `Find ${app.name}'s recipes`}</button>
-        </>
-      )}
-      {found && (
-        <>
-          <div className="row spread wrap">
-            <b>{found.length} {found.length === 1 ? 'recipe' : 'recipes'} in {app.name}</b>
-            <button className="btn small" onClick={() => setPicked(new Set(picked.size ? [] : found.filter((x) => !x.have).map((x) => x.id)))}>
-              {picked.size ? 'Pick none' : 'Pick all'}
-            </button>
-          </div>
-          <ul className="rec-pick">
-            {found.map((x) => (
-              <li key={x.id}>
-                <label className="inline check">
-                  <input type="checkbox" disabled={x.have} checked={picked.has(x.id)}
-                    onChange={(e) => setPicked((s) => { const n = new Set(s); if (e.target.checked) n.add(x.id); else n.delete(x.id); return n; })} />
-                  <span>{x.title}{x.have && <span className="muted small"> · already here</span>}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-          {error && <p className="error">{error}</p>}
-          <button className="btn primary" disabled={!!busy || !picked.size} onClick={bring}>
-            {busy || `📥 Bring over ${picked.size} ${picked.size === 1 ? 'recipe' : 'recipes'}`}
-          </button>
-        </>
-      )}
     </div>
   );
 }

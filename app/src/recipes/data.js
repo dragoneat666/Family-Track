@@ -90,8 +90,6 @@ export async function removeRecipePhoto(id) {
 // Importing can take a while (photos come too).
 const slow = (path, body) => api.request('POST', path, body, { timeout: 240000 });
 export const importFromPage = async (url) => after(await slow('/api/recipes/import/url', { url }));
-export const findInApp = (source, url, token) => slow('/api/recipes/import/list', { source, url, token });
-export const importFromApp = async (source, url, token, ids) => after(await slow('/api/recipes/import/run', { source, url, token, ids }));
 
 // ---------- photos ----------
 

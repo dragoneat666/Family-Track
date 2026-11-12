@@ -11,9 +11,8 @@ import { parseIngredients, isHeading, headingText, minutes } from './ingredients
 import { safeFetch } from './safeFetch.js';
 
 // The family's recipes. Grown-ups add them by hand, from a recipe web page
-// (its schema.org Recipe data, which nearly every recipe site has), or all
-// at once from Mealie or Tandoor (with an API token pasted in for that one
-// import and never kept). Each can have a photo of the dish.
+// (its schema.org Recipe data, which nearly every recipe site has). Each
+// can have a photo of the dish.
 //
 // Ingredients are kept both as written and read into amount / unit / thing,
 // so the app can scale them and the grocery list gets just the thing.
@@ -131,8 +130,7 @@ const upload = multer({
 
 // ---------- importing ----------
 
-// A recipe from a web page's schema.org data, Mealie or Tandoor, in the
-// shape clean() takes, plus where its picture is.
+// A recipe from a web page's schema.org data, in the shape clean() takes, plus where its picture is.
 function fromSchema(r, pageUrl) {
   const many = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
   const steps = [];
@@ -188,135 +186,6 @@ function findRecipe(html) {
     if (r) return r;
   }
   return null;
-}
-
-// A number from Tandoor or Mealie as a cook writes it: 0.5 → 1/2, 1.25 → 1 1/4.
-function amountText(n) {
-  if (!n) return '';
-  const w = Math.floor(n);
-  const f = n - w;
-  const frac = [[0.125, '1/8'], [0.25, '1/4'], [1 / 3, '1/3'], [0.5, '1/2'], [2 / 3, '2/3'], [0.75, '3/4']].find(([v]) => Math.abs(v - f) < 0.02);
-  if (f < 0.02) return String(w);
-  if (frac) return w ? `${w} ${frac[1]}` : frac[1];
-  return String(Math.round(n * 100) / 100);
-}
-
-// Talking to the family's own Mealie or Tandoor, at the address the grown-up
-// typed, with the token they pasted (only for this import; never kept).
-async function fromApp(base, token, p, { json = true } = {}) {
-  const url = new URL(p, base);
-  if (url.origin !== new URL(base).origin) throw httpError(400, 'That address points somewhere else');
-  let res;
-  try {
-    res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: json ? 'application/json' : '*/*' }, signal: AbortSignal.timeout(20000), redirect: 'error' });
-  } catch {
-    throw httpError(502, `Can't reach ${url.origin}. Check the address.`);
-  }
-  if (res.status === 401 || res.status === 403) throw httpError(400, "That token wasn't accepted. Check it's an API token for that account.");
-  if (!res.ok) throw httpError(502, `${url.origin} said ${res.status} for ${url.pathname}`);
-  if (!json) return Buffer.from(await res.arrayBuffer());
-  try {
-    return await res.json();
-  } catch {
-    throw httpError(502, "That address didn't answer like the app's API. Check the address.");
-  }
-}
-
-const SOURCES = {
-  mealie: {
-    async list(base, token) {
-      const r = await fromApp(base, token, '/api/recipes?page=1&perPage=500&orderBy=name&orderDirection=asc');
-      return (r.items || []).map((x) => ({ id: x.slug, key: `mealie:${x.id}`, title: x.name }));
-    },
-    async get(base, token, slug) {
-      const r = await fromApp(base, token, `/api/recipes/${encodeURIComponent(slug)}`);
-      const ingredients = [];
-      for (const i of r.recipeIngredient || []) {
-        if (i.title) ingredients.push(`${i.title}:`);
-        const composed = [amountText(i.quantity), i.unit?.name, i.food?.name, i.note].filter(Boolean).join(' ');
-        ingredients.push(i.originalText || i.display || composed);
-      }
-      const steps = [];
-      for (const s of r.recipeInstructions || []) {
-        if (s.title) steps.push(`${s.title}:`);
-        steps.push(s.text || '');
-      }
-      const yieldText = String(r.recipeYield || '');
-      return {
-        key: `mealie:${r.id}`,
-        data: {
-          title: r.name, description: r.description,
-          servings: r.recipeServings || yieldText.match(/^\s*(\d+)\s*(servings?|portions?|people)?\s*$/i)?.[1],
-          yield: /^\s*\d+\s*(servings?|portions?|people)?\s*$/i.test(yieldText) ? '' : yieldText,
-          prepMin: minutes(r.prepTime), cookMin: minutes(r.performTime || r.cookTime), totalMin: minutes(r.totalTime),
-          ingredients, steps,
-          notes: (r.notes || []).map((n) => [n.title, n.text].filter(Boolean).join(': ')).join('\n\n'),
-          tags: [...(r.recipeCategory || []), ...(r.tags || [])].map((t) => t.name),
-          sourceUrl: r.orgURL
-        },
-        image: r.image ? `/api/media/recipes/${r.id}/images/original.webp` : null
-      };
-    }
-  },
-  tandoor: {
-    async list(base, token) {
-      const out = [];
-      let next = '/api/recipe/?page_size=100';
-      for (let page = 0; next && page < 20; page++) {
-        const r = await fromApp(base, token, next);
-        out.push(...(r.results || []).map((x) => ({ id: String(x.id), key: `tandoor:${x.id}`, title: x.name })));
-        // (Tandoor's own idea of its address may not be the one we can reach.)
-        next = r.next ? new URL(r.next).pathname + new URL(r.next).search : null;
-      }
-      return out;
-    },
-    async get(base, token, id) {
-      const r = await fromApp(base, token, `/api/recipe/${Number(id)}/`);
-      const withIngredients = (r.steps || []).filter((s) => s.ingredients?.length);
-      const ingredients = [];
-      const steps = [];
-      for (const s of r.steps || []) {
-        if (s.ingredients?.length && withIngredients.length > 1 && s.name) ingredients.push(`${s.name}:`);
-        for (const i of s.ingredients || []) {
-          if (i.is_header) {
-            ingredients.push(`${i.note || i.food?.name || 'More'}:`);
-            continue;
-          }
-          const composed = [!i.no_amount && amountText(i.amount), !i.no_amount && i.unit?.name, i.food?.name, i.note && `(${i.note})`].filter(Boolean).join(' ');
-          ingredients.push(i.original_text || composed);
-        }
-        if (s.name && (r.steps.length > 1)) steps.push(`${s.name}:`);
-        steps.push(...String(s.instruction || '').split(/\n\s*\n/));
-      }
-      return {
-        key: `tandoor:${r.id}`,
-        data: {
-          title: r.name, description: r.description, servings: r.servings, yield: r.servings_text && r.servings_text !== 'servings' ? `${r.servings} ${r.servings_text}` : '',
-          prepMin: r.working_time || null, cookMin: r.waiting_time || null,
-          totalMin: (r.working_time || 0) + (r.waiting_time || 0) || null,
-          ingredients, steps,
-          tags: (r.keywords || []).map((k) => k.label || k.name),
-          sourceUrl: r.source_url
-        },
-        image: r.image ? new URL(r.image).pathname : null
-      };
-    }
-  }
-};
-
-function sourceArgs(b) {
-  const source = SOURCES[b.source];
-  if (!source) throw httpError(400, 'Import from Mealie or Tandoor');
-  let base;
-  try {
-    base = new URL(String(b.url || '').trim());
-    if (!/^https?:$/.test(base.protocol)) throw new Error();
-  } catch {
-    throw httpError(400, "That address doesn't look right (it starts with http:// or https://)");
-  }
-  const token = String(b.token || '').trim();
-  if (!token || /\s/.test(token)) throw httpError(400, 'Paste the API token');
-  return { source, base: base.origin, token };
 }
 
 const importedId = (key) => db.prepare('SELECT id FROM recipes WHERE imported_from = ?').get(key)?.id ?? null;
@@ -408,45 +277,4 @@ recipesRouter.post('/import/url', requireAdult, async (req, res) => {
     }
   }
   res.json({ ok: true, id, photo, ...everything() });
-});
-
-// What's in the family's Mealie or Tandoor (and which are here already).
-recipesRouter.post('/import/list', requireAdult, async (req, res) => {
-  const { source, base, token } = sourceArgs(req.body);
-  const found = await source.list(base, token);
-  res.json({
-    recipes: found.map(({ id, key, title }) => ({ id, title, have: !!importedId(key) }))
-  });
-});
-
-// Bring those picked over, with their photos. One that's already here
-// (imported before) is left as it is.
-recipesRouter.post('/import/run', requireAdult, async (req, res) => {
-  const { source, base, token } = sourceArgs(req.body);
-  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(String).slice(0, 500);
-  const results = [];
-  for (const id of ids) {
-    try {
-      const r = await source.get(base, token, id);
-      const have = importedId(r.key);
-      if (have) {
-        results.push({ id, title: r.data.title, recipe: have, already: true });
-        continue;
-      }
-      const recipe = insert(clean(r.data), req.account.id, r.key);
-      let photo = !r.image;
-      if (r.image) {
-        try {
-          await setPhoto(recipe, await fromApp(base, token, r.image, { json: false }));
-          photo = true;
-        } catch { /* the recipe still came over */ }
-      }
-      results.push({ id, title: r.data.title, recipe, photo });
-    } catch (e) {
-      // A bad token or address stops the lot; one bad recipe doesn't.
-      if (!results.length && e.status && e.status !== 404) throw e;
-      results.push({ id, error: e.message });
-    }
-  }
-  res.json({ ok: true, results, ...everything() });
 });

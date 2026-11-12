@@ -45,8 +45,8 @@ grown-ups' shared lists.
   everyone, just the kids, just grown-ups or nobody. More under
   [Contacts](#contacts).
 - **Recipes**: the family's recipes with photos, amounts that scale to
-  how many are eating, and imports from recipe web pages, Mealie and
-  Tandoor. More under [Recipes](#recipes).
+  how many are eating, and imports from recipe web pages. More under
+  [Recipes](#recipes).
 - **Lists**: the grown-ups' shared lists, one per store plus anything else
   (to-dos, packing). Store lists are sorted by section in the order you walk
   that store and suggest groceries as you type; anything can be pinned to the
@@ -489,18 +489,11 @@ many it serves, ingredients one per line (a line ending in `:` is a
 heading), steps one per line (or a blank line between longer ones), notes,
 tags and a web address.
 
-**📥 Import**:
-
-- **Web page**: paste a recipe page's address. Nearly every recipe site
-  describes its recipes in a standard way (schema.org), and that's what's
-  read, photo included. A few big sites turn the server away; add those by
-  hand. Only addresses out on the internet are fetched, never anything on
-  the home network.
-- **Mealie** or **Tandoor**: their address as the server reaches it and an
-  API token. It lists their recipes (ones brought over before say so), and
-  brings over those picked, with their photos, tags, times and notes. The
-  token is only used for that import and isn't kept; delete it in Mealie or
-  Tandoor afterwards. Importing again never makes a second copy.
+**📥 Import**: paste a recipe page's address. Nearly every recipe site
+describes its recipes in a standard way (schema.org), and that's what's
+read, photo included. A few big sites turn the server away; add those by
+hand. Only addresses out on the internet are fetched, never anything on the
+home network. Importing the same page again opens the copy already here.
 
 Photos are kept in the data folder (`data/recipes`).
 
