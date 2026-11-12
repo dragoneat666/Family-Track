@@ -51,7 +51,7 @@ export default function RemindersScreen({ account, onAuthLost }) {
         <section className="card stack">
           <h2 className="rem-heading">Today</h2>
           <div className="rem-today-list">
-            {today.map((t) => <TodayRow key={`${t.reminder}-${t.occ}`} t={t} r={byId.get(t.reminder)} people={data.people} now={now} offline={offline} />)}
+            {today.map((t) => <TodayRow key={`${t.reminder}-${t.occ}`} t={t} r={byId.get(t.reminder)} people={data.people} now={now} offline={offline} me={account.id} />)}
           </div>
         </section>
       )}
@@ -78,6 +78,7 @@ export default function RemindersScreen({ account, onAuthLost }) {
             <span className="small muted">
               👥 {whoText(r.who, data.people)}{r.each && r.for.length > 1 ? ', each taps their own Done' : ''} · {nudgesText(r.nudges)}
             </span>
+            {r.doneWho && <span className="small muted">✓ Done by {whoText(r.doneWho, data.people)}</span>}
           </button>
         ))}
       </section>
@@ -87,11 +88,13 @@ export default function RemindersScreen({ account, onAuthLost }) {
   );
 }
 
-// One time of one reminder today: done (by whom, when), not done yet, or later.
-function TodayRow({ t, r, people, now, offline }) {
+// One time of one reminder today: done (by whom, when), not done yet, or
+// later. Done only once its time has come, by those who can tap it.
+function TodayRow({ t, r, people, now, offline, me }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const late = t.at <= now;
+  const mine = (r.doneBy || []).includes(me);
   const name = (id) => people.find((p) => p.id === id)?.name || 'someone';
 
   async function act(options) {
@@ -117,8 +120,8 @@ function TodayRow({ t, r, people, now, offline }) {
               const tick = t.done.find((d) => d.profile === id || d.profile === 0);
               return (
                 <button
-                  key={id} className={`rem-person${tick ? ' done' : late ? ' late' : ''}`} disabled={busy || offline}
-                  title={tick ? `Done at ${clockText(tick.at)}` : 'Tap when done'}
+                  key={id} className={`rem-person${tick ? ' done' : late ? ' late' : ''}`} disabled={busy || offline || !mine || (!tick && !late)}
+                  title={tick ? `Done at ${clockText(tick.at)}` : late ? 'Tap when done' : 'Not time yet'}
                   onClick={() => act({ forId: id, undo: !!tick })}
                 >
                   {tick ? '✓' : '○'} {name(id)}
@@ -142,9 +145,9 @@ function TodayRow({ t, r, people, now, offline }) {
         {!tick && late && <span className="small rem-bad">Not done yet</span>}
         {error && <span className="error small">{error}</span>}
       </div>
-      {tick
+      {mine && (tick
         ? <button className="btn small" disabled={busy || offline} onClick={() => act({ undo: true })}>Undo</button>
-        : <button className={`btn small${late ? ' primary' : ''}`} disabled={busy || offline} onClick={() => act({})}>Done</button>}
+        : late && <button className="btn small primary" disabled={busy || offline} onClick={() => act({})}>Done</button>)}
     </div>
   );
 }
@@ -237,6 +240,18 @@ function ReminderEditor({ start, people, me, offline, onClose }) {
             </span>
           </>
         )}
+      </div>
+
+      <div className="stack rem-field">
+        <b>Who can tap Done</b>
+        <label className="inline check">
+          <input type="checkbox" checked={!r.doneWho} onChange={(e) => set({ doneWho: e.target.checked ? null : { groups: ['adults'], ids: [] } })} />
+          Whoever gets it (and any grown-up)
+        </label>
+        {r.doneWho && <WhoPicker value={r.doneWho} onChange={(doneWho) => set({ doneWho })} people={people} me={me} />}
+        <span className="muted small">
+          {r.doneWho ? 'Everyone else is still reminded, without a Done button.' : 'Done shows once its time comes.'}
+        </span>
       </div>
 
       <div className="stack rem-field">

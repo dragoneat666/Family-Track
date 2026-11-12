@@ -94,8 +94,18 @@ function Thing({ it, day }) {
   );
 }
 
+// A reminder for this kid today. Done only when it's time, and only if
+// they're one of the people who can say it's done.
 function ReminderRow({ r, onDone }) {
   const [busy, setBusy] = useState(false);
+  const [, redraw] = useState(0);
+  const due = r.at <= Date.now();
+  // Show Done when its time comes.
+  useEffect(() => {
+    if (due || !r.canDone) return undefined;
+    const t = setTimeout(() => redraw((n) => n + 1), Math.min(r.at - Date.now() + 500, 2 ** 31 - 1));
+    return () => clearTimeout(t);
+  }, [due, r.at, r.canDone]);
   async function done(e) {
     e.stopPropagation();
     setBusy(true);
@@ -106,12 +116,11 @@ function ReminderRow({ r, onDone }) {
     setBusy(false);
   }
   return (
-    <li className={`myday-thing reminder${r.done ? ' done' : r.at <= Date.now() ? ' late' : ''}`}>
+    <li className={`myday-thing reminder${r.done ? ' done' : due ? ' late' : ''}`}>
       <span className="myday-when">{r.time}</span>
       <span className="myday-what"><b>⏰ {r.title}</b>{r.note && <small>{r.note}</small>}</span>
-      {r.done
-        ? <span className="myday-tick">✓</span>
-        : <button className="btn primary myday-done" disabled={busy} onClick={done}>Done</button>}
+      {r.done && <span className="myday-tick">✓</span>}
+      {!r.done && due && r.canDone && <button className="btn primary myday-done" disabled={busy} onClick={done}>Done</button>}
     </li>
   );
 }

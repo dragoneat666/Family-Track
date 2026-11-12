@@ -446,7 +446,10 @@ const MIGRATIONS = [
   INSERT INTO contact_links (contact_id, device_id, phone_key)
     SELECT id, phone_device, phone_key FROM contacts WHERE phone_key IS NOT NULL AND phone_device IS NOT NULL;
   UPDATE contacts SET phone_key = NULL, phone_device = NULL;
-  `
+  `,
+  // Who can tap Done on a reminder, like `who`: null = whoever gets it
+  // (and any grown-up), else { all } / { groups, ids }.
+  `ALTER TABLE reminders ADD COLUMN done_who TEXT;`
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

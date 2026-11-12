@@ -5,7 +5,9 @@ import { httpError, requireAdult } from './auth.js';
 // Reminders at set times, like pills in the morning and evening. Grown-ups
 // make them; they go to whoever they're for as a phone notification with a
 // Done button. If nobody taps Done, the phones remind again (the "nudges",
-// say 30 and 60 minutes later) and then stop.
+// say 30 and 60 minutes later) and then stop. Who can tap Done can be
+// narrowed (say, only grown-ups for a kid's pills), and Done only counts
+// once the time has come.
 //
 // Phones don't work any of this out themselves. Their plan (GET
 // /api/notify/plan) lists every time for the next week, and they set alarms
@@ -35,7 +37,8 @@ export function timeText(hhmm) {
 
 const parse = (r) => r && {
   ...r,
-  times: JSON.parse(r.times), days: JSON.parse(r.days), who: JSON.parse(r.who), nudges: JSON.parse(r.nudges)
+  times: JSON.parse(r.times), days: JSON.parse(r.days), who: JSON.parse(r.who), nudges: JSON.parse(r.nudges),
+  done_who: r.done_who ? JSON.parse(r.done_who) : null
 };
 const reminderRow = (id) => parse(db.prepare('SELECT * FROM reminders WHERE id = ?').get(Number(id)));
 // In order of their first time of the day.
@@ -51,6 +54,20 @@ export function gets(who, p) {
   if (who.groups?.includes(p.is_parent ? 'adults' : 'kids')) return true;
   return !!who.ids?.includes(p.id);
 }
+
+// Can that person tap Done on it? Those picked, or (nobody picked) whoever
+// gets it and any grown-up.
+export function canDone(r, p) {
+  if (p.is_test) return false;
+  return r.done_who ? gets(r.done_who, p) : gets(r.who, p) || isAdult(p);
+}
+
+// When a time of a reminder ('2026-11-11T18:30') comes, in ms.
+const occAt = (occ) => {
+  const [y, m, d] = occ.slice(0, 10).split('-').map(Number);
+  const [h, mi] = occ.slice(11).split(':').map(Number);
+  return new Date(y, m - 1, d, h, mi).getTime();
+};
 
 // Every time the reminder goes off from `from` up to `to` (ms), in order:
 // { occ: '2026-11-11T08:00', at, time: '08:00' }.
@@ -100,11 +117,14 @@ export function reminderPlan(account) {
       const until = Math.min(times[n + 1]?.at ?? Infinity, o.at + DAY);
       if (until <= now || doneFor(done.get(o.occ), account.id)) return;
       const when = [timeText(o.time), r.note].filter(Boolean).join(' · ');
+      // (No Done button for someone who can't say it's done: they're just reminded.)
+      const actions = canDone(r, account)
+        ? [{ id: 'done', title: 'Done', post: { path: '/api/reminders/done', body: { id: r.id, occ: o.occ } } }] : [];
       entries.push({
         id: `rem-${r.id}-${o.occ.replace(/\D/g, '')}`,
         at: o.at, channel: 'reminders', quiet: false,
         title: r.title, body: when, againBody: `Not done yet · ${when}`,
-        actions: [{ id: 'done', title: 'Done', post: { path: '/api/reminders/done', body: { id: r.id, occ: o.occ } } }],
+        actions,
         // Reminded again at these times unless someone taps Done first, and
         // taken down when the next time comes round (or a day later).
         nudges: r.nudges.map((m) => o.at + m * MIN).filter((t) => t < until),
@@ -122,9 +142,10 @@ export function reminderPlan(account) {
 const toPerson = (p) => ({ id: p.id, name: p.name, emoji: p.emoji, color: p.color, isParent: !!p.is_parent });
 const toReminder = (r, everyone) => ({
   id: r.id, title: r.title, note: r.note, times: r.times, days: r.days, who: r.who,
-  each: !!r.each, nudges: r.nudges, paused: !!r.paused, createdBy: r.created_by,
-  // Who it goes to right now.
-  for: everyone.filter((p) => gets(r.who, p)).map((p) => p.id)
+  each: !!r.each, nudges: r.nudges, paused: !!r.paused, createdBy: r.created_by, doneWho: r.done_who,
+  // Who it goes to right now, and who can tap Done.
+  for: everyone.filter((p) => gets(r.who, p)).map((p) => p.id),
+  doneBy: everyone.filter((p) => canDone(r, p)).map((p) => p.id)
 });
 
 function todayBounds() {
@@ -153,13 +174,13 @@ function overview() {
   return { reminders: reminders.map((r) => toReminder(r, everyone)), people: everyone.map(toPerson), today, now: Date.now() };
 }
 
-function cleanWho(who) {
+function cleanWho(who, what = 'Pick who gets it') {
   if (!who || who.all) return { all: true };
   const groups = ['adults', 'kids'].filter((g) => Array.isArray(who.groups) && who.groups.includes(g));
   if (groups.length === 2) return { all: true };
   const known = new Set(people().map((p) => p.id));
   const ids = [...new Set((Array.isArray(who.ids) ? who.ids : []).map(Number))].filter((id) => known.has(id));
-  if (!groups.length && !ids.length) throw httpError(400, 'Pick who gets it');
+  if (!groups.length && !ids.length) throw httpError(400, what);
   return { groups, ids };
 }
 
@@ -172,7 +193,10 @@ function clean(b) {
   if (!days.length) throw httpError(400, 'Pick at least one day');
   const nudges = [...new Set((Array.isArray(b.nudges) ? b.nudges : []).map(Number))]
     .filter((m) => Number.isInteger(m) && m >= 1 && m <= 720).sort((x, y) => x - y).slice(0, 3);
-  return { title, note: text(b.note, 200), times, days, who: cleanWho(b.who), each: b.each ? 1 : 0, nudges, paused: b.paused ? 1 : 0 };
+  return {
+    title, note: text(b.note, 200), times, days, who: cleanWho(b.who), each: b.each ? 1 : 0, nudges, paused: b.paused ? 1 : 0,
+    doneWho: b.doneWho ? cleanWho(b.doneWho, 'Pick who can tap Done') : null
+  };
 }
 
 export const remindersRouter = express.Router();
@@ -182,10 +206,10 @@ remindersRouter.get('/', requireAdult, (req, res) => res.json(overview()));
 remindersRouter.post('/', requireAdult, (req, res) => {
   const r = clean(req.body);
   const now = Date.now();
-  db.prepare(`INSERT INTO reminders (title, note, times, days, who, each, nudges, paused, starts_at, created_by, created_at, changed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  db.prepare(`INSERT INTO reminders (title, note, times, days, who, each, nudges, paused, done_who, starts_at, created_by, created_at, changed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(r.title, r.note, JSON.stringify(r.times), JSON.stringify(r.days), JSON.stringify(r.who), r.each,
-      JSON.stringify(r.nudges), r.paused, now, req.account.id, now, now);
+      JSON.stringify(r.nudges), r.paused, r.doneWho && JSON.stringify(r.doneWho), now, req.account.id, now, now);
   res.json(overview());
 });
 
@@ -198,9 +222,9 @@ remindersRouter.put('/:id', requireAdult, (req, res) => {
   // nothing that already went by today suddenly turns up late.
   const fresh = JSON.stringify([old.times, old.days, old.who]) !== JSON.stringify([r.times, r.days, r.who]) || (old.paused && !r.paused);
   db.prepare(`UPDATE reminders SET title = ?, note = ?, times = ?, days = ?, who = ?, each = ?, nudges = ?, paused = ?,
-    starts_at = ?, changed_at = ? WHERE id = ?`)
+    done_who = ?, starts_at = ?, changed_at = ? WHERE id = ?`)
     .run(r.title, r.note, JSON.stringify(r.times), JSON.stringify(r.days), JSON.stringify(r.who), r.each,
-      JSON.stringify(r.nudges), r.paused, fresh ? now : old.starts_at, now, old.id);
+      JSON.stringify(r.nudges), r.paused, r.doneWho && JSON.stringify(r.doneWho), fresh ? now : old.starts_at, now, old.id);
   res.json(overview());
 });
 
@@ -210,15 +234,17 @@ remindersRouter.delete('/:id', requireAdult, (req, res) => {
 });
 
 // Done (or { undo: true }) for one time of a reminder: from a notification's
-// button, or the Reminders screen. Anyone it's for can; grown-ups can for
-// anyone, and `for` someone in particular when everyone taps their own.
+// button, My Day, or the Reminders screen. Whoever can tap Done on it can
+// (not before its time); grown-ups `for` someone in particular when
+// everyone taps their own.
 remindersRouter.post('/done', (req, res) => {
   const r = reminderRow(req.body.id);
   if (!r) throw httpError(404, 'That reminder is gone');
   const occ = String(req.body.occ ?? '');
   if (!OCC.test(occ)) throw httpError(400, 'Bad time');
   const adult = isAdult(req.account);
-  if (!adult && !gets(r.who, req.account)) throw httpError(403, "That one isn't for you");
+  if (!canDone(r, req.account)) throw httpError(403, "You can't say that one's done");
+  if (!req.body.undo && occAt(occ) > Date.now()) throw httpError(400, "It isn't time for that one yet");
   let profile = 0;
   if (r.each) profile = adult && req.body.for != null ? Number(req.body.for) : req.account.id;
   if (req.body.undo && r.each) {
@@ -266,7 +292,10 @@ remindersRouter.get('/today', (req, res) => {
     if (!times.length) continue;
     const done = doneSince(r.id, times[0].occ);
     for (const o of times) {
-      out.push({ id: r.id, title: r.title, note: r.note, occ: o.occ, at: o.at, time: timeText(o.time), done: doneFor(done.get(o.occ), req.account.id) });
+      out.push({
+        id: r.id, title: r.title, note: r.note, occ: o.occ, at: o.at, time: timeText(o.time),
+        done: doneFor(done.get(o.occ), req.account.id), canDone: canDone(r, req.account)
+      });
     }
   }
   res.json({ reminders: out.sort((a, b) => a.at - b.at) });

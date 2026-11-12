@@ -67,7 +67,7 @@ const afterChange = (data) => {
 export async function saveReminder(r) {
   const body = {
     title: r.title, note: r.note, times: r.times, days: r.days, who: r.who,
-    each: r.each, nudges: r.nudges, paused: r.paused
+    each: r.each, nudges: r.nudges, paused: r.paused, doneWho: r.doneWho || null
   };
   afterChange(r.id ? await api.put(`/api/reminders/${r.id}`, body) : await api.post('/api/reminders', body));
 }

@@ -326,14 +326,18 @@ Each one has:
 - **Done**: by default one Done counts for everyone, whoever taps it first.
   Or **Everyone taps their own Done**, and each person is reminded until
   they do.
+- **Who can tap Done**: whoever gets it and any grown-up, or just the
+  people picked (the same Everyone / Adults / Kids / people picker), say
+  only grown-ups for a kid's pills: the kid is still reminded, with no Done
+  button. Done only shows (and only counts) once the time has come.
 - **If it isn't done**: remind again after 30 minutes and again after an
   hour (both can be changed or turned off), then stop. A notification
   nobody dealt with goes away when the next time comes round.
 - **Paused**: kept, but no notifications for now.
 
 The screen also shows today's times: who tapped Done and when, which are not
-done yet, and a Done (or Undo) button for each; a grown-up can tap it for
-anyone.
+done yet, and a Done (or Undo) button for each once its time comes, for
+those who can tap Done.
 
 On the phones it works like list reminders: a week of times is set as alarms
 on the phone, so they go off with no connection. Before reminding again the
