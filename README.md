@@ -272,6 +272,10 @@ The **Lists** button on a grown-up's home screen. Kids don't see them.
   Checked brings it back instead of adding it twice. `milk x2` or
   `milk (the big one)` adds a note.
 - **Just me** (when making a list, or under ⋯) hides a list from everyone else.
+- **Color** (when making a list, or under ⋯) tints its card and its header.
+- **➡️ Send to list…** (⋯ next to an item) moves it to another list (store
+  lists first), into the section that list keeps it in, with its note and
+  reminder. If that list already has it, the two become one.
 - Everyone's phone shows a change within a second or two.
 
 **Without the server.** Each phone keeps its own copy of the lists, so they
@@ -377,7 +381,8 @@ An **event** has a name, who it's for (the whole family, or some of it: its
 colour is the first person's), a start and end (a time, or all day; it can
 last several days), how it repeats (every day, every week, every 2 weeks,
 every month on the same date or on, say, the 2nd Tuesday, or every year;
-until a date if you like), where, a note, and **Grown-ups only** to keep it
+**Custom…** for every 3 weeks and the like, up to 12; until a date if you
+like), where, a note, and **Grown-ups only** to keep it
 from the kids. A **birthday** is a name (or someone in the family), the date
 (with the year they were born, to show how old they turn), every year, on an
 orange card.
@@ -412,6 +417,10 @@ Tap it for **My Week**: the next seven days, today first (outlined), with
 "Nothing planned" on empty days and weekends tinted. Both refresh every few
 minutes and keep the last answer on the tablet, so they still show with no
 server in reach.
+
+**Cancel** on a new or changed event, birthday, reminder, contact or recipe
+asks before throwing away what was typed. Tapping outside a panel closes it
+(with the same question) without tapping whatever is behind it.
 
 ## Contacts
 

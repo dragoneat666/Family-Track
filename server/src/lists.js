@@ -61,6 +61,10 @@ function remember(list, name, sectionId, used, at, rev) {
     .run(list.id, key, name, sectionId ?? null, used ? 1 : 0, used ? at : null, rev);
 }
 
+// The colors a list can have (app/src/lists/colors.js has how they look).
+const LIST_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', 'brown', 'gray'];
+const color = (c) => (LIST_COLORS.includes(c) ? c : null);
+
 const dropPins = (kind, target) => db.prepare('DELETE FROM list_pins WHERE kind = ? AND target = ?').run(kind, target);
 
 // Each op gets { account, device, rev, at } and throws to refuse.
@@ -73,16 +77,16 @@ const OPS = {
     if (!row) {
       const name = text(l.name, 80);
       if (!name) throw httpError(400, 'A list needs a name');
-      db.prepare('INSERT INTO lists (id, name, kind, owner_id, private, sort, rev, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(listId, name, l.kind === 'store' ? 'store' : 'plain', ctx.account.id, l.private ? 1 : 0, num(l.sort, ctx.at), ctx.rev, ctx.at);
+      db.prepare('INSERT INTO lists (id, name, kind, owner_id, private, sort, color, rev, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(listId, name, l.kind === 'store' ? 'store' : 'plain', ctx.account.id, l.private ? 1 : 0, num(l.sort, ctx.at), color(l.color), ctx.rev, ctx.at);
       return;
     }
     openList(listId, ctx.account);
     const isPrivate = l.private == null ? row.private : (l.private ? 1 : 0);
     // Only its owner can make a list private (or it would vanish for them).
     if (isPrivate && !row.private && row.owner_id !== ctx.account.id) throw httpError(403, 'Only the person who made a list can make it "Just me"');
-    db.prepare('UPDATE lists SET name = ?, private = ?, sort = ?, rev = ?, changed_at = ? WHERE id = ?')
-      .run(text(l.name, 80) || row.name, isPrivate, num(l.sort, row.sort), ctx.rev, ctx.at, listId);
+    db.prepare('UPDATE lists SET name = ?, private = ?, sort = ?, color = ?, rev = ?, changed_at = ? WHERE id = ?')
+      .run(text(l.name, 80) || row.name, isPrivate, num(l.sort, row.sort), 'color' in l ? color(l.color) : row.color, ctx.rev, ctx.at, listId);
     if (isPrivate !== row.private) {
       // Everything in it has to reach (or leave) the other phones.
       for (const table of ['list_sections', 'list_items', 'list_memory']) db.prepare(`UPDATE ${table} SET rev = ? WHERE list_id = ?`).run(ctx.rev, listId);
@@ -148,6 +152,21 @@ const OPS = {
       .run(name, 'note' in i ? text(i.note, 200) : item.note, 'section' in i ? section : item.section_id, num(i.sort, item.sort), ctx.rev, ctx.at, itemId);
     // Moving it teaches this list where it goes next time.
     if (moved && section) remember(list, name, section, false, ctx.at, ctx.rev);
+  },
+
+  // Send an item to another list (Meijer -> Walmart), into the section
+  // given (the one that list keeps it in). It keeps its note, reminder and
+  // pins, except other people's pins when the new list is "Just me".
+  'item.move'(op, ctx) {
+    const { item } = openItem(id(op.item, 'item'), ctx.account);
+    const to = openList(id(op.list, 'list'), ctx.account);
+    if (to.id === item.list_id) return;
+    let section = op.section == null ? null : id(op.section, 'section');
+    if (section && !db.prepare('SELECT 1 FROM list_sections WHERE id = ? AND list_id = ? AND deleted = 0').get(section, to.id)) section = null;
+    db.prepare('UPDATE list_items SET list_id = ?, section_id = ?, sort = ?, rev = ?, changed_at = ? WHERE id = ?')
+      .run(to.id, section, ctx.at, ctx.rev, ctx.at, item.id);
+    if (to.private) db.prepare("DELETE FROM list_pins WHERE kind = 'item' AND target = ? AND profile_id != ?").run(item.id, to.owner_id);
+    if (!item.checked) remember(to, item.name, section, true, ctx.at, ctx.rev);
   },
 
   // again: it was put back on the list from Checked (counts as used again).
@@ -248,7 +267,7 @@ function changes(account, device, since) {
 
   const lists = [];
   for (const l of rows('lists')) {
-    if (visible.get(l.id)) lists.push({ id: l.id, name: l.name, kind: l.kind, private: !!l.private, mine: l.owner_id === account.id, sort: l.sort });
+    if (visible.get(l.id)) lists.push({ id: l.id, name: l.name, kind: l.kind, private: !!l.private, mine: l.owner_id === account.id, sort: l.sort, color: l.color || null });
     else if (!full) lists.push({ id: l.id, deleted: true });
   }
   return {
@@ -256,7 +275,8 @@ function changes(account, device, since) {
     full,
     lists,
     sections: rows('list_sections').filter((s) => visible.get(s.list_id)).map(toSection),
-    items: rows('list_items').filter((i) => visible.get(i.list_id)).map(toItem),
+    // (An item sent to a list someone can't see is gone, for them.)
+    items: rows('list_items').map((i) => (visible.get(i.list_id) ? toItem(i) : !full && { id: i.id, deleted: true })).filter(Boolean),
     memory: db.prepare('SELECT * FROM list_memory WHERE rev > ?').all(from).filter((m) => visible.get(m.list_id))
       .map((m) => ({ list: m.list_id, key: m.key, name: m.name, section: m.section_id, uses: m.uses, usedAt: m.used_at })),
     pins: db.prepare('SELECT kind, target, at FROM list_pins WHERE device_id = ? AND profile_id = ?').all(device.id, account.id),

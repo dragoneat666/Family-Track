@@ -2,13 +2,29 @@ import { useEffect, useRef, useState } from 'react';
 
 // A panel that slides up over the screen. Tapping outside it, its Done
 // button or the phone's Back button closes it.
-export function Sheet({ title, onClose, children, closeLabel = 'Done', wide }) {
+// discard: when set (e.g. "Throw away this new event?"), closing without
+// saving asks that first, so what was typed isn't lost by accident.
+// Tapping outside closes it on the tap's click, not as the finger goes down,
+// so the tap can't land on whatever is under the sheet once it's gone.
+export function Sheet({ title, onClose, children, closeLabel = 'Done', wide, discard }) {
+  const downOutside = useRef(false);
+  const close = () => {
+    if (discard && !window.confirm(discard)) return;
+    onClose();
+  };
   return (
-    <div className="sheet-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="sheet-backdrop"
+      onPointerDown={(e) => { downOutside.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && downOutside.current) close();
+        downOutside.current = false;
+      }}
+    >
       <div className={wide ? 'sheet wide' : 'sheet'} role="dialog" aria-label={title}>
         <div className="sheet-head">
           <h3>{title}</h3>
-          <button data-back className={closeLabel === 'Done' ? 'btn primary small' : 'btn small'} onClick={onClose}>{closeLabel}</button>
+          <button data-back className={closeLabel === 'Done' ? 'btn primary small' : 'btn small'} onClick={close}>{closeLabel}</button>
         </div>
         <div className="sheet-body stack">{children}</div>
       </div>

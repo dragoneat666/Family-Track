@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLists, lists, sortedLists, itemsOf, isPinned } from './store.js';
 import { Sheet, Reorder, SyncNote } from './ui.jsx';
+import { ColorPicker, listTint } from './colors.jsx';
 
 // The grown-ups' Lists tab: every list as a card. Tapping one opens it
 // full screen (openList, from the grown-up area).
@@ -23,7 +24,7 @@ export default function ListsTab({ openList }) {
           const items = itemsOf(v, l.id);
           const left = items.filter((i) => !i.checked).length;
           return (
-            <button key={l.id} className={`list-card ${l.kind}`} onClick={() => openList(l.id)}>
+            <button key={l.id} className={`list-card ${l.kind}${l.color ? ' tinted' : ''}`} style={listTint(l.color)} onClick={() => openList(l.id)}>
               <span className="list-card-emoji">{l.kind === 'store' ? '🛒' : '📝'}</span>
               <span className="list-card-name">{l.name}</span>
               <span className="list-card-count">{left ? `${left} left` : items.length ? 'All checked ✓' : 'Empty'}</span>
@@ -56,11 +57,12 @@ function NewList({ v, onClose, onMade }) {
   const [kind, setKind] = useState('store');
   const [isPrivate, setPrivate] = useState(false);
   const [sections, setSections] = useState('standard');
+  const [color, setColor] = useState(null);
   const stores = sortedLists(v).filter((l) => l.kind === 'store');
 
   function make(e) {
     e.preventDefault();
-    if (name.trim()) onMade(lists.addList({ name, kind, isPrivate, sections }));
+    if (name.trim()) onMade(lists.addList({ name, kind, isPrivate, sections, color }));
   }
 
   return (
@@ -88,6 +90,10 @@ function NewList({ v, onClose, onMade }) {
           <input type="checkbox" checked={isPrivate} onChange={(e) => setPrivate(e.target.checked)} />
           🔒 Just me (nobody else sees this list)
         </label>
+        <div className="stack">
+          <span>Color</span>
+          <ColorPicker value={color} onChange={setColor} />
+        </div>
         <button className="btn primary" disabled={!name.trim()}>Make the list</button>
       </form>
     </Sheet>

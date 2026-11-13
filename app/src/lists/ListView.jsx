@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { notify } from '../notify.js';
-import { useLists, lists, sectionsOf, itemsOf, openItems, checkedItems, suggest, parseEntry, isPinned, pinWaits } from './store.js';
+import { useLists, lists, sectionsOf, itemsOf, openItems, checkedItems, suggest, parseEntry, isPinned, pinWaits, sortedLists } from './store.js';
 import { Sheet, Reorder, SyncNote } from './ui.jsx';
+import { ColorPicker, listTint } from './colors.jsx';
 
 // One list, full screen: add box with suggestions on top, what's left
 // (by section for store lists), then what's been checked off.
@@ -81,8 +82,8 @@ export default function ListView({ listId, focusItem, onExit }) {
   );
 
   return (
-    <div className="list-screen">
-      <header className="list-header">
+    <div className="list-screen" style={listTint(list.color)}>
+      <header className={`list-header${list.color ? ' tinted' : ''}`}>
         <button data-back className="btn" onClick={onExit}>← Lists</button>
         <h2>{list.name} {list.private && '🔒'}{isPinned(v, 'list', listId) && '📌'}</h2>
         <button className="btn" onClick={() => setSheet('menu')} aria-label="List options">⋯</button>
@@ -130,7 +131,7 @@ export default function ListView({ listId, focusItem, onExit }) {
         )}
       </main>
 
-      {sheet?.item && v.items.get(sheet.item) && <ItemSheet v={v} list={list} item={v.items.get(sheet.item)} onClose={() => setSheet(null)} />}
+      {sheet?.item && v.items.get(sheet.item) && <ItemSheet v={v} list={list} item={v.items.get(sheet.item)} onClose={() => setSheet(null)} onSent={say} />}
       {sheet === 'menu' && <ListMenu v={v} list={list} onClose={() => setSheet(null)} onSections={() => setSheet('sections')} onClear={clearChecked} onDeleted={onExit} />}
       {sheet === 'sections' && <SectionsSheet v={v} list={list} onClose={() => setSheet(null)} />}
     </div>
@@ -190,8 +191,9 @@ function quickTimes() {
   return out;
 }
 
-function ItemSheet({ v, list, item, onClose }) {
+function ItemSheet({ v, list, item, onClose, onSent }) {
   const [warn, setWarn] = useState('');
+  const [sending, setSending] = useState(false);
   const pinned = isPinned(v, 'item', item.id);
   const others = v.people.filter((p) => p.id !== v.me);
   const who = item.who || { ids: [v.me] };
@@ -231,6 +233,27 @@ function ItemSheet({ v, list, item, onClose }) {
   function remove() {
     lists.deleteItems([item.id]);
     onClose();
+  }
+  // The other lists, the same kind first (store lists for groceries).
+  const elsewhere = sortedLists(v).filter((l) => l.id !== list.id)
+    .sort((a, b) => (a.kind === list.kind ? 0 : 1) - (b.kind === list.kind ? 0 : 1));
+  function send(to) {
+    const done = lists.moveItem(item.id, to.id);
+    onClose();
+    if (done) onSent(done === 'merged' ? `${item.name} was already on ${to.name}` : `Sent ${item.name} to ${to.name}`);
+  }
+
+  if (sending) {
+    return (
+      <Sheet title={`Send ${item.name} to…`} onClose={() => setSending(false)} closeLabel="Back">
+        {elsewhere.map((l) => (
+          <button key={l.id} className="btn send-to" style={listTint(l.color)} onClick={() => send(l)}>
+            <span className="send-to-dot" />{l.kind === 'store' ? '🛒' : '📝'} {l.name}{l.private ? ' 🔒' : ''}
+          </button>
+        ))}
+        {!elsewhere.length && <p className="muted">There's no other list yet.</p>}
+      </Sheet>
+    );
   }
 
   return (
@@ -295,6 +318,7 @@ function ItemSheet({ v, list, item, onClose }) {
         </div>
       )}
 
+      {elsewhere.length > 0 && <button className="btn" onClick={() => setSending(true)}>➡️ Send to list…</button>}
       <button className="btn danger" onClick={remove}>Delete from the list</button>
     </Sheet>
   );
@@ -325,6 +349,10 @@ function ListMenu({ v, list, onClose, onSections, onClear, onDeleted }) {
       <label>Name
         <input defaultValue={list.name} maxLength={80} onBlur={(e) => e.target.value.trim() !== list.name && lists.renameList(list.id, e.target.value)} />
       </label>
+      <div className="stack">
+        <span>Color</span>
+        <ColorPicker value={list.color} onChange={(c) => lists.setColor(list.id, c)} />
+      </div>
       {notify.available && (
         <label className="inline check">
           <input type="checkbox" checked={pinned} onChange={(e) => pin(e.target.checked)} />

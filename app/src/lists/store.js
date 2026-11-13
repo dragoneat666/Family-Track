@@ -54,9 +54,12 @@ function applyOp(v, op) {
       const l = op.list;
       const cur = v.lists.get(l.id);
       if (!cur) {
-        if (l.name) v.lists.set(l.id, { id: l.id, name: l.name, kind: l.kind === 'store' ? 'store' : 'plain', private: !!l.private, mine: true, sort: l.sort ?? op.at });
+        if (l.name) v.lists.set(l.id, { id: l.id, name: l.name, kind: l.kind === 'store' ? 'store' : 'plain', private: !!l.private, mine: true, sort: l.sort ?? op.at, color: l.color || null });
       } else {
-        v.lists.set(l.id, { ...cur, name: l.name || cur.name, private: l.private == null ? cur.private : !!l.private, sort: l.sort ?? cur.sort });
+        v.lists.set(l.id, {
+          ...cur, name: l.name || cur.name, private: l.private == null ? cur.private : !!l.private, sort: l.sort ?? cur.sort,
+          color: has(l, 'color') ? l.color || null : cur.color
+        });
       }
       break;
     }
@@ -105,6 +108,15 @@ function applyOp(v, op) {
         v.items.set(i.id, next);
         if (next.section && next.section !== cur.section) learn(v, v.lists.get(cur.list), next.name, next.section, false, op.at);
       }
+      break;
+    }
+    case 'item.move': {
+      const cur = v.items.get(op.item);
+      const to = v.lists.get(op.list);
+      if (!cur || !to || cur.list === to.id) break;
+      const section = op.section && v.sections.get(op.section)?.list === to.id ? op.section : null;
+      v.items.set(cur.id, { ...cur, list: to.id, section, sort: op.at });
+      if (!cur.checked) learn(v, to, cur.name, section, true, op.at);
       break;
     }
     case 'item.check': {
@@ -415,6 +427,7 @@ function touches(v, op) {
   switch (op.t) {
     case 'item.put': item(op.item.id, op.item.list); break;
     case 'item.check': case 'item.remind': item(op.item); break;
+    case 'item.move': item(op.item); ids.push(`pin-list-${op.list}`); break;
     case 'items.del': op.items.forEach((x) => item(x)); break;
     // (Pinning an item also decides whether its reminder shows by itself.)
     case 'pin.set': ids.push(`pin-${op.kind}-${op.target}`, ...(op.kind === 'item' ? [`remind-${op.target}`] : [])); break;
@@ -635,10 +648,10 @@ function queue(...ops) {
 
 export const lists = {
   // sections: 'standard', or the id of a list to copy them from.
-  addList({ name, kind, isPrivate, sections = 'standard' }) {
+  addList({ name, kind, isPrivate, sections = 'standard', color = null }) {
     const id = newId();
     const v = session.view;
-    const ops = [{ t: 'list.put', list: { id, name: name.trim(), kind, private: !!isPrivate, sort: Date.now() } }];
+    const ops = [{ t: 'list.put', list: { id, name: name.trim(), kind, private: !!isPrivate, sort: Date.now(), color } }];
     if (kind === 'store') {
       const from = v.lists.has(sections) ? sectionsOf(v, sections).map((s) => [s.key, s.name]) : SECTIONS;
       from.forEach(([key, sectionName], n) => ops.push({ t: 'section.put', section: { id: newId(), list: id, name: sectionName, key, sort: n + 1 } }));
@@ -648,6 +661,7 @@ export const lists = {
   },
   renameList: (id, name) => name.trim() && queue({ t: 'list.put', list: { id, name: name.trim() } }),
   setPrivate: (id, on) => queue({ t: 'list.put', list: { id, private: !!on } }),
+  setColor: (id, color) => queue({ t: 'list.put', list: { id, color: color || null } }),
   deleteList: (id) => queue({ t: 'list.del', list: id }),
   orderLists: (ids) => {
     const v = session.view;
@@ -677,6 +691,29 @@ export const lists = {
     const id = newId();
     queue({ t: 'item.put', item: { id, list: listId, section: sectionFor(v, list, name), name, note: entry.note, sort: Date.now() } });
     return { id, was: null };
+  },
+  // Send an item to another list, into the section that list keeps it in.
+  // If that list already has it, the two become one. Returns 'moved',
+  // 'merged' (it was already on that list) or null.
+  moveItem(id, toListId) {
+    const v = session.view;
+    const item = v.items.get(id);
+    const to = v.lists.get(toListId);
+    if (!item || !to || item.list === to.id) return null;
+    const key = nameKey(item.name);
+    const there = itemsOf(v, to.id).find((i) => nameKey(i.name) === key);
+    if (there && !there.checked) {
+      const ops = [];
+      if (item.note && !there.note) ops.push({ t: 'item.put', item: { id: there.id, note: item.note } });
+      ops.push({ t: 'items.del', items: [item.id] });
+      queue(...ops);
+      return 'merged';
+    }
+    const ops = [];
+    if (there) ops.push({ t: 'items.del', items: [there.id] }); // (an old checked copy)
+    ops.push({ t: 'item.move', item: item.id, list: to.id, section: sectionFor(v, to, item.name) });
+    queue(...ops);
+    return 'moved';
   },
   check: (id, checked) => queue({ t: 'item.check', item: id, checked: !!checked }),
   updateItem: (id, patch) => queue({ t: 'item.put', item: { id, ...patch } }),

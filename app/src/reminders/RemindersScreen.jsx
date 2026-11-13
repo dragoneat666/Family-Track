@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { notify } from '../notify.js';
 import { Sheet } from '../lists/ui.jsx';
 import WhoPicker from './WhoPicker.jsx';
@@ -154,6 +154,9 @@ function TodayRow({ t, r, people, now, offline, me }) {
 
 function ReminderEditor({ start, people, me, offline, onClose }) {
   const [r, setR] = useState(() => ({ ...start, times: [...start.times], days: [...start.days], nudges: [...start.nudges] }));
+  const startedAs = useRef(null);
+  if (startedAs.current === null) startedAs.current = JSON.stringify(r);
+  const changed = JSON.stringify(r) !== startedAs.current;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (patch) => setR((x) => ({ ...x, ...patch }));
@@ -193,7 +196,7 @@ function ReminderEditor({ start, people, me, offline, onClose }) {
   }
 
   return (
-    <Sheet title={r.id ? 'Reminder' : 'New reminder'} onClose={onClose} closeLabel="Cancel">
+    <Sheet title={r.id ? 'Reminder' : 'New reminder'} onClose={onClose} closeLabel="Cancel" discard={changed && !busy && (start.id ? 'Throw away your changes?' : 'Throw away this new reminder?')}>
       <label>
         What
         <input value={r.title} onChange={(e) => set({ title: e.target.value })} placeholder="Morning pills" maxLength={80} />

@@ -154,11 +154,21 @@ export function repeatKey(r) {
   return r.n === 1 ? r.every : 'other';
 }
 
+// "Every 3 weeks on Tuesday", "Every 2 months on the 2nd Friday".
+export function customRepeatText(r, startDay) {
+  const d = fromDay(startDay);
+  const unit = { day: 'days', week: 'weeks', month: 'months', year: 'years' }[r.every];
+  const every = r.n === 1 ? `Every ${unit.slice(0, -1)}` : `Every ${r.n} ${unit}`;
+  if (r.every === 'week') return `${every} on ${WEEKDAYS[d.getDay()]}`;
+  if (r.every === 'month') return `${every} on the ${r.by === 'weekday' ? `${nthText(startDay)} ${WEEKDAYS[d.getDay()]}` : ordinal(d.getDate())}`;
+  if (r.every === 'year') return `${every} on ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  return every;
+}
+
 export function repeatText(r, startDay) {
   if (!r) return '';
   const key = repeatKey(r);
-  const unit = { day: 'days', week: 'weeks', month: 'months', year: 'years' }[r.every];
-  const words = key === 'other' ? `Every ${r.n} ${unit}` : repeatChoices(startDay).find(([k]) => k === key)[1];
+  const words = key === 'other' ? customRepeatText(r, startDay) : repeatChoices(startDay).find(([k]) => k === key)[1];
   return r.until ? `${words}, until ${shortDay(r.until)}${r.until.slice(0, 4) !== todayDay().slice(0, 4) ? ` ${r.until.slice(0, 4)}` : ''}` : words;
 }
 

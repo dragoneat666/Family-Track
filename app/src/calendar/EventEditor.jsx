@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Sheet } from '../lists/ui.jsx';
 import WhoPicker from '../reminders/WhoPicker.jsx';
 import { notify } from '../notify.js';
 import { gets } from '../reminders/data.js';
 import { refreshContacts } from '../contacts/data.js';
 import {
-  saveEvent, changeDate, repeatChoices, repeatKey, repeatText, remindText, todayDay, addDays, daysBetween, shortDay,
+  saveEvent, changeDate, repeatChoices, repeatKey, repeatText, customRepeatText, remindText, todayDay, addDays, daysBetween, shortDay,
   REMIND_TIMED, REMIND_ALL_DAY, DEFAULT_REMIND
 } from './data.js';
 
@@ -52,6 +52,10 @@ export default function EventEditor({ start, date, people, me, offline, onClose,
   });
   const [showAge, setShowAge] = useState(start.kind !== 'birthday' || !start.id || start.birthYear != null);
   const [busy, setBusy] = useState(false);
+  const startedAs = useRef(null);
+  if (startedAs.current === null) startedAs.current = JSON.stringify(e);
+  const changed = JSON.stringify(e) !== startedAs.current;
+  const [custom, setCustom] = useState(() => repeatKey(start.repeat) === 'other');
   const [error, setError] = useState('');
   const set = (patch) => setE((x) => ({ ...x, ...patch }));
   const birthday = e.kind === 'birthday';
@@ -84,6 +88,12 @@ export default function EventEditor({ start, date, people, me, offline, onClose,
     set({ allDay, remind });
   }
   function setRepeat(key) {
+    if (key === 'custom') {
+      setCustom(true);
+      set({ repeat: { every: 'week', n: e.repeat?.every === 'week' && e.repeat.n > 2 ? e.repeat.n : 3, until: e.repeat?.until || null } });
+      return;
+    }
+    setCustom(false);
     const choice = repeatChoices(e.startDay).find(([k]) => k === key);
     if (!choice) return;
     set({ repeat: choice[2] && { ...choice[2], until: e.repeat?.until || null } });
@@ -135,9 +145,16 @@ export default function EventEditor({ start, date, people, me, offline, onClose,
 
   const title = date ? `Change just ${shortDay(date.occ)}` : start.id ? (birthday ? 'Birthday' : 'Event') : birthday ? 'New birthday' : 'New event';
   const repeatOptions = repeatChoices(e.startDay);
-  const key = repeatKey(e.repeat);
+  const key = custom && e.repeat ? 'custom' : repeatKey(e.repeat);
+  const setCustomRepeat = (change) => {
+    const r = { ...e.repeat, ...change };
+    if (r.every === 'month') r.by = r.by === 'weekday' ? 'weekday' : 'date';
+    else delete r.by;
+    set({ repeat: r });
+  };
   return (
-    <Sheet title={title} onClose={onClose} closeLabel="Cancel">
+    <Sheet title={title} onClose={onClose} closeLabel="Cancel"
+      discard={changed && !busy && (start.id || date ? 'Throw away your changes?' : `Throw away this new ${birthday ? 'birthday' : 'event'}?`)}>
       {!start.id && !date && (
         <div className="cal-kinds">
           <button type="button" className={!birthday ? 'on' : ''} onClick={() => setKind('event')}>📅 Event</button>
@@ -214,7 +231,27 @@ export default function EventEditor({ start, date, people, me, offline, onClose,
               <select value={key} onChange={(ev) => setRepeat(ev.target.value)}>
                 {repeatOptions.map(([k, words]) => <option key={k} value={k}>{words}</option>)}
                 {key === 'other' && <option value="other">{repeatText({ ...e.repeat, until: null }, e.startDay)}</option>}
+                <option value="custom">Custom…</option>
               </select>
+              {key === 'custom' && (
+                <div className="row wrap repeat-custom">
+                  <span>Every</span>
+                  <input type="number" inputMode="numeric" min="1" max="12" value={e.repeat.n}
+                    onChange={(ev) => setCustomRepeat({ n: Math.min(12, Math.max(1, Math.round(Number(ev.target.value) || 1))) })} aria-label="How many" />
+                  <select value={e.repeat.every} onChange={(ev) => setCustomRepeat({ every: ev.target.value })} aria-label="Days, weeks, months or years">
+                    {[['day', 'days'], ['week', 'weeks'], ['month', 'months'], ['year', 'years']].map(([v, w]) => (
+                      <option key={v} value={v}>{e.repeat.n === 1 ? w.slice(0, -1) : w}</option>
+                    ))}
+                  </select>
+                  {e.repeat.every === 'month' && (
+                    <select value={e.repeat.by} onChange={(ev) => setCustomRepeat({ by: ev.target.value })} aria-label="On which day">
+                      <option value="date">on the same date</option>
+                      <option value="weekday">on the same weekday</option>
+                    </select>
+                  )}
+                  <span className="muted small">{customRepeatText(e.repeat, e.startDay)}</span>
+                </div>
+              )}
               {e.repeat && (
                 <label className="inline check">
                   Until

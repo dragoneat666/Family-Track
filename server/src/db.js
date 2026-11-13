@@ -491,7 +491,10 @@ const MIGRATIONS = [
     changed_at INTEGER NOT NULL
   );
   CREATE INDEX meals_day ON meals(day);
-  `
+  `,
+  // A list's color (a name from LIST_COLORS in lists.js), or null for the
+  // standard look.
+  `ALTER TABLE lists ADD COLUMN color TEXT;`
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

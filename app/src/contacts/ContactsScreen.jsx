@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sheet } from '../lists/ui.jsx';
 import { phoneContacts } from './phone.js';
 import { PhoneCheck, AddToPhone } from './PhoneCheck.jsx';
@@ -212,6 +212,9 @@ function ContactEditor({ start, people, contacts, offline, onClose, onSaved, onD
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [sure, setSure] = useState(false);
+  const startedAs = useRef(null);
+  if (startedAs.current === null) startedAs.current = JSON.stringify(c);
+  const changed = JSON.stringify(c) !== startedAs.current;
   const set = (patch) => setC((x) => ({ ...x, ...patch }));
   const [month, day] = c.birthday ? c.birthday.split('-').map(Number) : [0, 0];
   const thisYear = new Date().getFullYear();
@@ -273,7 +276,7 @@ function ContactEditor({ start, people, contacts, offline, onClose, onSaved, onD
   }
 
   return (
-    <Sheet title={start.id ? `Change ${start.name}` : 'New contact'} onClose={onClose} closeLabel="Cancel">
+    <Sheet title={start.id ? `Change ${start.name}` : 'New contact'} onClose={onClose} closeLabel="Cancel" discard={changed && !busy && (start.id ? 'Throw away your changes?' : 'Throw away this new contact?')}>
       {phoneContacts.available && (
         <button type="button" className="btn" onClick={fromPhone}>📱 From my phone's contacts</button>
       )}

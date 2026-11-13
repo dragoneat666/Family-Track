@@ -540,6 +540,7 @@ input.line-text { font: inherit; padding: 4px 8px; }
   box-shadow: 0 4px 18px var(--shadow); border-top: 6px solid var(--brand);
 }
 .list-card.plain { border-top-color: #9b5de5; }
+.list-card.tinted { border-top-color: var(--list-color); background: color-mix(in srgb, var(--list-color) 14%, var(--card, var(--bg))); }
 .list-card.new { border: 3px dashed var(--line); border-top-width: 3px; box-shadow: none; background: transparent; color: var(--muted); align-items: center; justify-content: center; }
 .list-card:active { transform: translateY(2px); }
 .list-card-emoji { font-size: 1.6rem; line-height: 1; }
@@ -551,6 +552,14 @@ input.line-text { font: inherit; padding: 4px 8px; }
 .list-screen > .sync-note { margin: 0 12px 8px; }
 .list-pad { padding: 0 16px; }
 .list-header { display: flex; align-items: center; gap: 10px; padding: 12px 12px 8px; }
+.list-header.tinted { border-bottom: 4px solid var(--list-color); margin-bottom: 6px; }
+.list-header.tinted h2 { color: color-mix(in srgb, var(--list-color) 70%, var(--text, currentColor)); }
+.color-picker { display: flex; flex-wrap: wrap; gap: 10px; }
+.color-dot { width: 38px; height: 38px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; padding: 0; box-shadow: 0 0 0 1px var(--line); }
+.color-dot.none { background: var(--field); color: var(--muted); font-size: 1.1rem; }
+.color-dot.on { border-color: var(--bg); box-shadow: 0 0 0 3px var(--text, #222); }
+.send-to { justify-content: flex-start; text-align: left; gap: 10px; }
+.send-to-dot { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto; background: var(--list-color, transparent); box-shadow: 0 0 0 1px var(--line); }
 .list-header h2 { flex: 1; margin: 0; font-size: 1.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-add { position: relative; display: flex; gap: 8px; padding: 0 12px; }
 .list-add input { flex: 1; font-size: 1.1rem; padding: 12px 14px; }
@@ -637,6 +646,9 @@ input.line-text { font: inherit; padding: 4px 8px; }
 .rem-day { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--line); background: var(--field); font: inherit; font-weight: 800; color: var(--muted); cursor: pointer; }
 .rem-day.on { background: var(--brand); border-color: var(--brand); color: #fff; }
 .rem-field select { padding: 6px 8px; }
+.repeat-custom { align-items: center; gap: 8px; }
+.repeat-custom input[type='number'] { width: 4.5em; flex: 0 0 auto; }
+.repeat-custom select { flex: 0 1 auto; }
 .who-picker { display: flex; flex-direction: column; gap: 6px; }
 .who-level { display: flex; flex-direction: column; gap: 6px; margin-left: 30px; padding-left: 10px; border-left: 2px solid var(--line); }
 

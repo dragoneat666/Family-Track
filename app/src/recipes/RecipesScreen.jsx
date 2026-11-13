@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Sheet } from '../lists/ui.jsx';
 import {
   useRecipes, refreshRecipes, saveRecipe, deleteRecipe, setRecipePhoto, removeRecipePhoto, importFromPage,
@@ -236,6 +236,9 @@ function RecipeEditor({ start, offline, onClose, onSaved, onDeleted }) {
   const [r, setR] = useState(start);
   const [photo, setPhoto] = useState(null); // { file, preview } picked, not uploaded yet
   const [dropPhoto, setDropPhoto] = useState(false);
+  const startedAs = useRef(null);
+  if (startedAs.current === null) startedAs.current = JSON.stringify({ r, photo: !!photo, dropPhoto });
+  const changed = JSON.stringify({ r, photo: !!photo, dropPhoto }) !== startedAs.current;
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const set = (patch) => setR((x) => ({ ...x, ...patch }));
@@ -281,7 +284,7 @@ function RecipeEditor({ start, offline, onClose, onSaved, onDeleted }) {
   );
   const showingPhoto = photo ? 'new' : r.photo && !dropPhoto ? 'old' : null;
   return (
-    <Sheet title={r.id ? 'Change recipe' : 'New recipe'} onClose={onClose} closeLabel="Cancel" wide>
+    <Sheet title={r.id ? 'Change recipe' : 'New recipe'} onClose={onClose} closeLabel="Cancel" wide discard={changed && !busy && (start.id ? 'Throw away your changes?' : 'Throw away this new recipe?')}>
       <label>Name<input value={r.title} onChange={(e) => set({ title: e.target.value })} maxLength={120} placeholder="Taco night" /></label>
 
       <div className="stack tight">
