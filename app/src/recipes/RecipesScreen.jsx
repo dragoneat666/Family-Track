@@ -6,6 +6,7 @@ import {
 } from './data.js';
 import { Photo } from './Photo.jsx';
 import { Planner, PlanRecipe, GrocerySheet } from './Planner.jsx';
+import CookMode, { TimerBar } from './CookMode.jsx';
 
 const TAB = 'ft.meals.tab';
 const savedTab = () => { try { return localStorage.getItem(TAB) || 'plan'; } catch { return 'plan'; } };
@@ -141,6 +142,7 @@ function RecipeView({ r, startServes, canEdit, offline, backTo, onBack, onEdit }
   const [planning, setPlanning] = useState(false);
   const [planned, setPlanned] = useState(false);
   const [shopping, setShopping] = useState(false);
+  const [cooking, setCooking] = useState(false);
   const [times, setTimes] = useState(1);
   const by = r.servings ? serves / r.servings : times;
   const [crossed, setCrossed] = useState(new Set()); // ingredients tapped as got out
@@ -155,6 +157,8 @@ function RecipeView({ r, startServes, canEdit, offline, backTo, onBack, onEdit }
       </div>
       {planning && <PlanRecipe recipe={r} serves={serves} onClose={(ok) => { setPlanning(false); if (ok) setPlanned(true); }} />}
       {shopping && <GrocerySheet title={r.title} sources={[{ recipe: r, by }]} onClose={() => setShopping(false)} />}
+      {cooking && <CookMode r={r} by={by} onClose={() => setCooking(false)} />}
+      <TimerBar />
       {r.photo && <Photo src={r.photo} className="rec-hero" />}
       <h2 className="rec-title">{r.title}</h2>
       {r.description && <p className="rec-desc">{r.description}</p>}
@@ -165,6 +169,9 @@ function RecipeView({ r, startServes, canEdit, offline, backTo, onBack, onEdit }
         </div>
       )}
 
+      {(r.steps.length > 0 || r.ingredients.length > 0) && (
+        <button className="btn primary rec-cook" onClick={() => setCooking(true)}>👩‍🍳 Start cooking</button>
+      )}
       {canEdit && (
         <div className="row wrap rec-do">
           <button className="btn" disabled={offline} onClick={() => setPlanning(true)}>📅 Plan it</button>

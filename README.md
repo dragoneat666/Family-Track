@@ -523,6 +523,30 @@ home network. Importing the same page again opens the copy already here.
 
 Photos are kept in the data folder (`data/recipes`).
 
+### Cooking mode
+
+**👩‍🍳 Start cooking** on a recipe opens it full screen, one page at a
+time in big letters: the ingredients (at the amounts shown, tap to cross
+off), then each step. **◀ Back / Next ▶** or swipe; **🥕** brings the
+ingredients back up at any step. The screen stays on while it's open.
+
+**Timers**: a step that says how long ("simmer for 10 minutes") gets a
+**⏲ Start a 10 minute timer** button, and **⏲ + Timer** starts any other.
+Several can run at once, each counting down at the top (on the recipe page
+too). When one is up it rings until **Stop** (or **+1 min**). In the app
+each timer is also a phone alarm with a countdown notification, so it goes
+off on time with the app closed or the screen off; **Stop** on the
+notification (or swiping it away) stops it, and it gives up after ten
+minutes. In a browser it beeps while the page is open.
+
+**🎙 Voice** (the app, Android 12 and up): say **"Yes chef"** and then
+"next", "back", "read it", "ingredients", "set a timer for 10 minutes",
+"stop" or "how long is left". Steps and ingredients are read out loud. It
+uses the phone's own offline speech recognition, so nothing said leaves the
+phone, and it only listens while cooking mode is open and on screen. The
+first time, it asks for the microphone; if the phone doesn't have offline
+speech for its language yet, it asks the phone to download it.
+
 ## Developing
 
 No Node needed on the host. Everything runs in Docker:

@@ -887,6 +887,38 @@ input.line-text { font: inherit; padding: 4px 8px; }
 .myday-dinner-photo { width: 52px; height: 52px; border-radius: 12px; flex: 0 0 auto; }
 .myday-dinner-icon { font-size: 1.8rem; }
 
+/* ---------- cooking mode ---------- */
+
+.rec-cook { font-size: 1.15rem; padding: 14px; }
+.cook {
+  position: fixed; inset: 0; z-index: 45; background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column; gap: 10px;
+  padding:
+    calc(max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)) + 10px)
+    calc(max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px)) + 14px)
+    calc(max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px)) + 12px)
+    calc(max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px)) + 14px);
+}
+.cook-head { display: flex; align-items: center; gap: 10px; }
+.cook-title { flex: 1; min-width: 0; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cook-voice.on { background: var(--good); border-color: var(--good); color: #fff; }
+.cook-page { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 6px 2px; touch-action: pan-y; }
+.cook-step-n { margin: 0; font-weight: 800; color: var(--brand); font-size: 1.1rem; }
+.cook-text { margin: 0; font-size: clamp(1.6rem, 4.6vw, 2.6rem); line-height: 1.35; font-weight: 600; white-space: pre-line; overflow-wrap: anywhere; }
+.cook-ingredients li { font-size: clamp(1.25rem, 3.6vw, 1.9rem); padding: 10px 2px; }
+.cook-step-timer { align-self: flex-start; font-size: 1.15rem; padding: 12px 18px; }
+.cook-voice-note { margin: 0; font-size: 0.95rem; color: var(--muted); font-weight: 600; text-align: center; }
+.cook-nav { display: flex; gap: 10px; }
+.cook-nav .btn { font-size: 1.25rem; padding: 16px 14px; }
+.cook-nav-btn { flex: 1; }
+.timer-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rec-view > .timer-bar:empty { display: none; }
+.timer { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 14px; background: var(--card); box-shadow: 0 2px 6px var(--shadow); font-weight: 600; }
+.timer-left { font-variant-numeric: tabular-nums; font-size: 1.1rem; }
+.timer-bar.big .timer-left { font-size: 1.35rem; }
+.timer.ringing { background: var(--bad); color: #fff; animation: ring 1s ease-in-out infinite; }
+@keyframes ring { 50% { transform: scale(1.04); } }
+
 /* ---------- dark mode ----------
    Follows the phone's or computer's light/dark setting. Most colours come
    from the variables at the top; the rest are the kids' screens' own

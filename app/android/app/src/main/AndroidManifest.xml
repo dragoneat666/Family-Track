@@ -40,6 +40,8 @@
              are back without waiting for that. -->
         <receiver android:name=".notify.AlarmReceiver" android:exported="false" android:directBootAware="true" />
         <receiver android:name=".notify.ActionReceiver" android:exported="false" android:directBootAware="true" />
+        <!-- Cooking timers going off, and their Stop / Cancel buttons. -->
+        <receiver android:name=".cook.TimerReceiver" android:exported="false" />
         <receiver android:name=".notify.BootReceiver" android:exported="false" android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
@@ -49,13 +51,21 @@
         </receiver>
     </application>
 
+    <!-- Cooking mode talks to the phone's speech recognizer and text-to-speech
+         (Android 11+ only lets apps see the services they name here). -->
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+    </queries>
+
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Front camera for brushing; frames never leave the device -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
-    <!-- Microphone, only while a grown-up records lines for an exercise coach -->
+    <!-- Microphone, only while a grown-up records lines for an exercise coach,
+         or while cooking mode listens for "Yes chef" (on the phone only) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
