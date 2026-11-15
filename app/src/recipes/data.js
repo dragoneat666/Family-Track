@@ -68,7 +68,7 @@ export async function saveRecipe(r) {
     title: r.title, description: r.description, servings: r.servings, yield: r.yield,
     prepMin: r.prepMin, cookMin: r.cookMin, totalMin: r.totalMin,
     ingredients: r.ingredientsText.split('\n'), steps: textToSteps(r.stepsText),
-    notes: r.notes, tags: r.tagsText.split(','), sourceUrl: r.sourceUrl
+    notes: r.notes, tags: r.tagsText.split(','), sourceUrl: r.sourceUrl, importKey: r.importKey || null
   };
   return after(r.id ? await api.put(`/api/recipes/${r.id}`, body) : await api.post('/api/recipes', body)).id;
 }
@@ -89,7 +89,27 @@ export async function removeRecipePhoto(id) {
 
 // Importing can take a while (photos come too).
 const slow = (path, body) => api.request('POST', path, body, { timeout: 240000 });
-export const importFromPage = async (url) => after(await slow('/api/recipes/import/url', { url }));
+// A link (a recipe page, or a TikTok / Instagram / Facebook video) and any
+// text that came with it, or just a recipe's text. The answer is one of
+// { id } (saved: a recipe page, or already here), { draft, picture, found }
+// (read from a caption: check it in the editor, then save) or { needText }
+// (Instagram / Facebook: paste the caption).
+export async function importRecipe(typed, fromUrl = null) {
+  const url = typed.match(/https?:\/\/[^\s<>"]+/i)?.[0]?.replace(/[.,)!]+$/, '') || null;
+  const rest = (url ? typed.replace(url, ' ') : typed).trim();
+  const r = url && !fromUrl
+    ? await slow('/api/recipes/import/url', { url, text: rest })
+    : await slow('/api/recipes/import/text', { text: typed, url: fromUrl || url });
+  return r.id ? after(r) : r;
+}
+export const importFromPage = (url) => importRecipe(url);
+
+// A data: address (the video's picture) → a file, as if picked.
+export async function pictureFile(dataUrl) {
+  if (!dataUrl) return null;
+  const blob = await (await fetch(dataUrl)).blob();
+  return new File([blob], 'video.jpg', { type: blob.type || 'image/jpeg' });
+}
 
 // ---------- photos ----------
 

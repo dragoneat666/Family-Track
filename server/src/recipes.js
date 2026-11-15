@@ -9,6 +9,7 @@ import { DATA_DIR, TMP_DIR } from './config.js';
 import { httpError, requireAdult } from './auth.js';
 import { parseIngredients, isHeading, headingText, minutes } from './ingredients.js';
 import { safeFetch } from './safeFetch.js';
+import { captionRecipe } from './caption.js';
 
 // The family's recipes. Grown-ups add them by hand, from a recipe web page
 // (its schema.org Recipe data, which nearly every recipe site has). Each
@@ -206,7 +207,10 @@ recipesRouter.get('/photo/:file', (req, res) => {
 });
 
 recipesRouter.post('/', requireAdult, (req, res) => {
-  const id = insert(clean(req.body), req.account.id);
+  // importKey: the video or page it was read from, so sharing that again
+  // opens this one.
+  const key = parseUrl(req.body.importKey) ? importKey(parseUrl(req.body.importKey)) : null;
+  const id = insert(clean(req.body), req.account.id, key);
   res.json({ ok: true, id, ...everything() });
 });
 
@@ -252,22 +256,42 @@ recipesRouter.delete('/:id/photo', requireAdult, (req, res) => {
 
 // A recipe from a web page. Only pages out on the internet (not the home
 // network), so this can't be used to poke at the family's own servers.
-recipesRouter.post('/import/url', requireAdult, async (req, res) => {
-  let url;
+// ---------- importing ----------
+
+// Videos: the recipe is in the caption, and none of these sites let the
+// server read it: Instagram and Facebook need a login, and TikTok's public
+// oEmbed stopped including the caption (late 2026; it's still asked, in case
+// it comes back). So the caption is pasted, or comes along when it's shared.
+function socialSite(u) {
+  const h = u.hostname.replace(/^(www|m|mobile|web)\./, '');
+  if (/(^|\.)tiktok\.com$/.test(h)) return 'TikTok';
+  if (/(^|\.)instagram\.com$/.test(h)) return 'Instagram';
+  if (/(^|\.)(facebook\.com|fb\.watch|fb\.com)$/.test(h)) return 'Facebook';
+  return null;
+}
+// The same video shared twice has different tracking bits after the "?".
+function importKey(u) {
+  const k = new URL(u.href);
+  k.hash = '';
+  if (socialSite(k)) k.search = '';
+  return k.href;
+}
+function parseUrl(raw) {
   try {
-    url = new URL(String(req.body.url || '').trim());
-    if (!/^https?:$/.test(url.protocol)) throw new Error();
-  } catch {
-    throw httpError(400, "That doesn't look like a web address");
-  }
-  url.hash = '';
-  const have = importedId(url.href);
-  if (have) return res.json({ ok: true, id: have, already: true, ...everything() });
-  const page = await safeFetch(url.href, { maxBytes: 6 * 1024 * 1024, accept: 'text/html,application/xhtml+xml' });
+    const u = new URL(String(raw || '').trim());
+    if (/^https?:$/.test(u.protocol)) return u;
+  } catch { /* below */ }
+  return null;
+}
+const NOT_READ = "That page doesn't have a recipe Family Track can read. You can still add it by hand.";
+
+// A recipe page (schema.org) → saved. Null when the page has none.
+async function importPage(url, accountId, key) {
+  const page = await safeFetch(url, { maxBytes: 6 * 1024 * 1024, accept: 'text/html,application/xhtml+xml' });
   const found = findRecipe(page.body.toString('utf8'));
-  if (!found) throw httpError(400, "That page doesn't have a recipe Family Track can read. You can still add it by hand.");
+  if (!found) return null;
   const r = fromSchema(found, page.url);
-  const id = insert(clean(r.data), req.account.id, url.href);
+  const id = insert(clean(r.data), accountId, key);
   let photo = true;
   if (r.image) {
     try {
@@ -276,5 +300,103 @@ recipesRouter.post('/import/url', requireAdult, async (req, res) => {
       photo = false;
     }
   }
-  res.json({ ok: true, id, photo, ...everything() });
+  return { id, photo };
+}
+
+// A video's picture, ready for the editor (a data: address), or null.
+async function pictureFor(url) {
+  if (!url) return null;
+  try {
+    const img = (await safeFetch(url, { maxBytes: 15 * 1024 * 1024, accept: 'image/*' })).body;
+    const jpg = await sharp(img, { failOn: 'error', limitInputPixels: 80e6 }).rotate()
+      .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
+    return `data:image/jpeg;base64,${jpg.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
+// TikTok's caption, name and picture: { caption, author, picture } or null.
+async function tiktok(u) {
+  let url = u.href;
+  // A short link (vm.tiktok.com/…) goes to the video's own address first.
+  if (!/\/(video|photo)\/\d+/.test(u.pathname)) {
+    url = (await safeFetch(url, { stopAt: (x) => /tiktok\.com\/@[^/]+\/(video|photo)\/\d+/.test(x), maxBytes: 3 * 1024 * 1024 })).url;
+  }
+  try {
+    const r = await safeFetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`, { accept: 'application/json', maxBytes: 512 * 1024 });
+    const j = JSON.parse(r.body.toString('utf8'));
+    return { caption: String(j.title || ''), author: String(j.author_name || ''), picture: j.thumbnail_url || null };
+  } catch {
+    return null;
+  }
+}
+
+// Caption text → a recipe for the editor (not saved: it gets checked
+// first). If the caption only points to a recipe page ("full recipe on my
+// blog: …"), that page is imported instead.
+async function fromCaption(caption, { site, sourceUrl, key, picture, author, accountId }) {
+  const r = captionRecipe(caption, { site });
+  if (!r.found) {
+    for (const link of r.links.slice(0, 2)) {
+      const lu = parseUrl(link);
+      if (!lu || socialSite(lu)) continue;
+      try {
+        const have = importedId(importKey(lu));
+        if (have) return { id: have, already: true };
+        const saved = await importPage(lu.href, accountId, importKey(lu));
+        if (saved) return saved;
+      } catch { /* the caption, then */ }
+    }
+  }
+  const notes = [r.notes, author && `From ${author} on ${site}.`].filter(Boolean).join('\n');
+  return {
+    draft: {
+      title: r.title, description: r.description, servings: r.servings, ingredients: r.ingredients, steps: r.steps,
+      notes, sourceUrl, importKey: key
+    },
+    found: r.found,
+    picture: await pictureFor(picture)
+  };
+}
+
+// url: a recipe page, or a TikTok / Instagram / Facebook video. text: what
+// came with it when it was shared to the app (maybe the caption).
+recipesRouter.post('/import/url', requireAdult, async (req, res) => {
+  const url = parseUrl(req.body.url);
+  if (!url) throw httpError(400, "That doesn't look like a web address");
+  url.hash = '';
+  const key = importKey(url);
+  const have = importedId(key);
+  if (have) return res.json({ ok: true, id: have, already: true, ...everything() });
+  const shared = String(req.body.text || '').slice(0, 10000);
+  const site = socialSite(url);
+  const answer = (out) => res.json({ ok: true, site, ...out, ...(out.id ? everything() : {}) });
+
+  if (!site) {
+    const saved = await importPage(url.href, req.account.id, key);
+    if (!saved) throw httpError(400, NOT_READ);
+    return answer(saved);
+  }
+  const base = { site, sourceUrl: key, key, accountId: req.account.id };
+  if (site === 'TikTok') {
+    const t = await tiktok(url).catch(() => null);
+    const caption = [t?.caption, shared].filter(Boolean).join('\n');
+    if (caption.trim()) return answer(await fromCaption(caption, { ...base, picture: t?.picture, author: t?.author }));
+    return answer({ needText: true, sourceUrl: key, importKey: key });
+  }
+  // Instagram, Facebook: only what came with the share.
+  if (captionRecipe(shared).found) return answer(await fromCaption(shared, base));
+  return answer({ needText: true, sourceUrl: key, importKey: key });
+});
+
+// A recipe's text, pasted (a caption copied from Instagram, say). url: the
+// video or post it came from, if known.
+recipesRouter.post('/import/text', requireAdult, async (req, res) => {
+  const caption = String(req.body.text || '').slice(0, 10000);
+  if (!caption.trim()) throw httpError(400, 'Paste the recipe first');
+  const url = parseUrl(req.body.url);
+  const key = url ? importKey(url) : null;
+  const out = await fromCaption(caption, { site: url ? socialSite(url) : null, sourceUrl: key || '', key, accountId: req.account.id });
+  res.json({ ok: true, ...out, ...(out.id ? everything() : {}) });
 });

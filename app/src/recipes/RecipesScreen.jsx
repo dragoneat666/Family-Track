@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Sheet } from '../lists/ui.jsx';
 import {
-  useRecipes, refreshRecipes, saveRecipe, deleteRecipe, setRecipePhoto, removeRecipePhoto, importFromPage,
+  useRecipes, refreshRecipes, saveRecipe, deleteRecipe, setRecipePhoto, removeRecipePhoto, importRecipe, pictureFile,
   timesText, totalTime, timeText, ingredientText, yieldText, matches, topTags, stepsToText, ingredientsToText
 } from './data.js';
 import { Photo } from './Photo.jsx';
@@ -15,6 +15,12 @@ const blank = () => ({
   title: '', description: '', servings: '', yield: '', prepMin: '', cookMin: '', totalMin: '',
   ingredientsText: '', stepsText: '', notes: '', tagsText: '', sourceUrl: '', photo: null
 });
+// What was read from a video's caption, ready for the editor.
+const fromDraft = (d) => ({
+  ...blank(), title: d.title || '', description: d.description || '', servings: d.servings ?? '',
+  ingredientsText: (d.ingredients || []).join('\n'), stepsText: stepsToText((d.steps || []).map((text) => ({ text }))),
+  notes: d.notes || '', sourceUrl: d.sourceUrl || '', importKey: d.importKey || null, fromImport: true
+});
 const editable = (r) => ({
   ...r, servings: r.servings ?? '', prepMin: r.prepMin ?? '', cookMin: r.cookMin ?? '', totalMin: r.totalMin ?? '',
   ingredientsText: ingredientsToText(r.ingredients), stepsText: stepsToText(r.steps), tagsText: r.tags.join(', ')
@@ -23,7 +29,7 @@ const editable = (r) => ({
 // Meals: the planner (what's for dinner this week) and the family's
 // recipes: find one, read it (scaled to how many are eating), and for
 // grown-ups (canEdit) add, change and import them.
-export default function RecipesScreen({ canEdit, onAuthLost }) {
+export default function RecipesScreen({ canEdit, onAuthLost, shared }) {
   const { data, offline } = useRecipes();
   const [tab, setTab] = useState(savedTab);
   const [q, setQ] = useState('');
@@ -31,7 +37,18 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
   const [open, setOpenState] = useState(null); // { id, serves }
   const setOpen = (id, serves) => setOpenState(id == null ? null : { id, serves });
   const [editing, setEditing] = useState(null); // a recipe being made or changed
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState(false); // true, or { text } shared from another app
+  const [editPhoto, setEditPhoto] = useState(null); // the video's picture, for a recipe read from its caption
+  const [editNote, setEditNote] = useState('');
+
+  // Shared from another app: straight to the import.
+  useEffect(() => {
+    if (!shared || !canEdit) return;
+    pickTab('recipes');
+    setOpenState(null);
+    setEditing(null);
+    setImporting({ text: shared.text });
+  }, [shared?.at]);
 
   useEffect(() => {
     const refresh = () => refreshRecipes().catch((e) => e.status === 401 && onAuthLost?.());
@@ -47,6 +64,12 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
     try { localStorage.setItem(TAB, t); } catch { /* fine */ }
   };
 
+  const edit = (r, photo = null, note = '') => {
+    setEditPhoto(photo);
+    setEditNote(note);
+    setEditing(r);
+  };
+
   const tags = useMemo(() => (data ? topTags(data.recipes) : []), [data]);
 
   if (!data) {
@@ -57,7 +80,7 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
 
   const opened = open && data.recipes.find((r) => r.id === open.id);
   const editor = editing && (
-    <RecipeEditor start={editing} offline={offline} onClose={() => setEditing(null)}
+    <RecipeEditor start={editing} startPhoto={editPhoto} note={editNote} offline={offline} onClose={() => setEditing(null)}
       onSaved={(id) => { setEditing(null); setOpen(id); }}
       onDeleted={() => { setEditing(null); setOpen(null); }} />
   );
@@ -66,7 +89,7 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
     return (
       <>
         <RecipeView key={`${opened.id}:${open.serves}`} r={opened} startServes={open.serves} canEdit={canEdit} offline={offline}
-          backTo={tab === 'plan' ? 'Meals' : 'Recipes'} onBack={() => setOpen(null)} onEdit={() => setEditing(editable(opened))} />
+          backTo={tab === 'plan' ? 'Meals' : 'Recipes'} onBack={() => setOpen(null)} onEdit={() => edit(editable(opened))} />
         {editor}
       </>
     );
@@ -95,12 +118,12 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
 
       <div className="row rec-top">
         <input className="rec-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Find a recipe or ingredient" />
-        {canEdit && <button className="btn primary" disabled={offline} onClick={() => setEditing(blank())}>+ Add</button>}
+        {canEdit && <button className="btn primary" disabled={offline} onClick={() => edit(blank())}>+ Add</button>}
       </div>
       {canEdit && (
         <div className="row wrap rec-bar">
           <button className="btn" disabled={offline} onClick={() => setImporting(true)}>📥 Import</button>
-          <span className="muted small">from a recipe web page</span>
+          <span className="muted small">from a recipe page or a TikTok, Instagram or Facebook video</span>
         </div>
       )}
       {tags.length > 0 && (
@@ -130,7 +153,11 @@ export default function RecipesScreen({ canEdit, onAuthLost }) {
         )}
       </ul>
 
-      {importing && <ImportSheet onClose={() => setImporting(false)} onOpen={(id) => { setImporting(false); setOpen(id); }} />}
+      {importing && (
+        <ImportSheet start={importing.text || ''} offline={offline} onClose={() => setImporting(false)}
+          onOpen={(id) => { setImporting(false); setOpen(id); }}
+          onDraft={(draft, photo, note) => { setImporting(false); edit(fromDraft(draft), photo, note); }} />
+      )}
       {editor}
     </div>
   );
@@ -232,12 +259,14 @@ function RecipeView({ r, startServes, canEdit, offline, backTo, onBack, onEdit }
   );
 }
 
-function RecipeEditor({ start, offline, onClose, onSaved, onDeleted }) {
+function RecipeEditor({ start, startPhoto, note, offline, onClose, onSaved, onDeleted }) {
   const [r, setR] = useState(start);
-  const [photo, setPhoto] = useState(null); // { file, preview } picked, not uploaded yet
+  // { file, preview } picked (or the video's picture), not uploaded yet
+  const [photo, setPhoto] = useState(() => (startPhoto ? { file: startPhoto, preview: URL.createObjectURL(startPhoto) } : null));
   const [dropPhoto, setDropPhoto] = useState(false);
   const startedAs = useRef(null);
-  if (startedAs.current === null) startedAs.current = JSON.stringify({ r, photo: !!photo, dropPhoto });
+  // (A recipe read from a video counts as typed: closing it asks first.)
+  if (startedAs.current === null) startedAs.current = start.fromImport ? '' : JSON.stringify({ r, photo: !!photo, dropPhoto });
   const changed = JSON.stringify({ r, photo: !!photo, dropPhoto }) !== startedAs.current;
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -285,6 +314,7 @@ function RecipeEditor({ start, offline, onClose, onSaved, onDeleted }) {
   const showingPhoto = photo ? 'new' : r.photo && !dropPhoto ? 'old' : null;
   return (
     <Sheet title={r.id ? 'Change recipe' : 'New recipe'} onClose={onClose} closeLabel="Cancel" wide discard={changed && !busy && (start.id ? 'Throw away your changes?' : 'Throw away this new recipe?')}>
+      {note && <p className="sync-note">{note}</p>}
       <label>Name<input value={r.title} onChange={(e) => set({ title: e.target.value })} maxLength={120} placeholder="Taco night" /></label>
 
       <div className="stack tight">
@@ -339,41 +369,80 @@ function RecipeEditor({ start, offline, onClose, onSaved, onDeleted }) {
   );
 }
 
-// Bring a recipe in from a web page's address.
-function ImportSheet({ onClose, onOpen }) {
-  return (
-    <Sheet title="Import a recipe" onClose={onClose} closeLabel="Close" wide>
-      <FromPage onOpen={onOpen} />
-    </Sheet>
-  );
-}
-
-function FromPage({ onOpen }) {
-  const [url, setUrl] = useState('');
+// Bring a recipe in: a recipe page's address, a TikTok / Instagram /
+// Facebook video (its caption), or a recipe's text pasted. start: what was
+// shared from another app, imported straight away.
+function ImportSheet({ start, offline, onClose, onOpen, onDraft }) {
+  const [typed, setTyped] = useState(start);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  async function go() {
+  const [ask, setAsk] = useState(null); // { site, sourceUrl, importKey }: paste its caption
+  const [caption, setCaption] = useState('');
+  const ran = useRef(false);
+
+  async function done(r) {
+    if (r.id) return onOpen(r.id);
+    if (r.needText) {
+      setAsk({ site: r.site, sourceUrl: r.sourceUrl, importKey: r.importKey });
+      setBusy(false);
+      return undefined;
+    }
+    const photo = await pictureFile(r.picture).catch(() => null);
+    const site = r.site === 'TikTok' ? 'the TikTok caption' : 'the caption';
+    return onDraft(r.draft, photo, r.found
+      ? `Read from ${site}. Check it over, then Save.`
+      : `Couldn't find the ingredients and steps in ${site}. Fill them in (often they're said in the video), then Save.`);
+  }
+  async function go(text, fromUrl) {
     setBusy(true);
     setError('');
     try {
-      const r = await importFromPage(url.trim());
-      onOpen(r.id);
+      await done(await importRecipe(text, fromUrl));
     } catch (e) {
       setError(e.message);
       setBusy(false);
     }
   }
+  useEffect(() => {
+    if (start && !ran.current && !offline) {
+      ran.current = true;
+      go(start);
+    }
+  }, []);
+
+  if (ask) {
+    return (
+      <Sheet title="Paste the caption" onClose={onClose} closeLabel="Close" wide discard={caption.trim() && !busy ? 'Throw away what you pasted?' : null}>
+        <p>{ask.site} doesn't let Family Track read its videos. In {ask.site}, copy the caption (where the recipe usually is) and paste it here.</p>
+        <p className="muted small">If it won't let you copy the caption, many Android phones can copy text straight off the screen: open Recent apps and
+          tap <b>Select</b>, or use Circle to Search. Family Track keeps the link either way.</p>
+        <textarea rows={10} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Paste the caption…" autoFocus />
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary" disabled={busy || offline || !caption.trim()} onClick={() => go(caption, ask.sourceUrl)}>
+          {busy ? 'Reading it…' : '📥 Make a recipe from it'}
+        </button>
+        <button className="btn" disabled={busy} onClick={() => onDraft({ sourceUrl: ask.sourceUrl, importKey: ask.importKey }, null, `From ${ask.site}. Type it in, then Save.`)}>
+          ✏️ Type it in myself
+        </button>
+      </Sheet>
+    );
+  }
+
+  const ready = typed.trim().length > 0 && (/https?:\/\/\S+\.\S+/i.test(typed) || typed.trim().length > 20);
   return (
-    <div className="stack">
-      <label>The recipe's web address
-        <input type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" />
+    <Sheet title="Import a recipe" onClose={onClose} closeLabel="Close" wide>
+      <label>A link, or the recipe's text
+        <textarea rows={4} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="https://… or paste a recipe" />
       </label>
-      <p className="muted small">Copy the address from the browser (Share → Copy link) and paste it here. Most recipe sites work; a few won't let
-        Family Track read them, and those can be added by hand.</p>
+      <p className="muted small">
+        A recipe page's address (most recipe sites work), or a recipe's text, like a TikTok, Instagram or Facebook
+        caption (with the video's link, to keep it). On the phone you can also tap <b>Share → Family Track</b> in those apps.
+      </p>
+      {busy && start && <p className="muted">Reading what you shared…</p>}
       {error && <p className="error">{error}</p>}
-      <button className="btn primary" disabled={busy || !/^https?:\/\/\S+\.\S+/i.test(url.trim())} onClick={go}>
-        {busy ? 'Reading the page…' : '📥 Import it'}
+      <button className="btn primary" disabled={busy || offline || !ready} onClick={() => go(typed)}>
+        {busy ? 'Reading it…' : '📥 Import it'}
       </button>
-    </div>
+    </Sheet>
   );
 }

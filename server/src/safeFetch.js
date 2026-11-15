@@ -91,9 +91,12 @@ function once(url, { accept, maxBytes, timeout }) {
 }
 
 // GET a page or picture out on the internet: { url (after redirects), type, body }.
-export async function safeFetch(url, { accept = '*/*', maxBytes = 5 * 1024 * 1024, timeout = 15000 } = {}) {
+// stopAt(url): a redirect to an address it says yes to isn't followed; the
+// answer is just { url } (to find where a short link goes).
+export async function safeFetch(url, { accept = '*/*', maxBytes = 5 * 1024 * 1024, timeout = 15000, stopAt } = {}) {
   for (let hops = 0; hops < 6; hops++) {
     if (!/^https?:\/\//i.test(url)) throw httpError(400, "That doesn't look like a web address");
+    if (hops && stopAt?.(url)) return { url };
     const r = await once(url, { accept, maxBytes, timeout });
     if (!r.redirect) return r;
     url = r.redirect;

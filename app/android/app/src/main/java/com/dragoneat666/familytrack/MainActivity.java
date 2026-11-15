@@ -5,6 +5,7 @@ import android.os.Bundle;
 import com.dragoneat666.familytrack.contacts.ContactsPlugin;
 import com.dragoneat666.familytrack.cook.CookPlugin;
 import com.dragoneat666.familytrack.notify.NotifyPlugin;
+import com.dragoneat666.familytrack.share.SharePlugin;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -16,6 +17,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ContactsPlugin.class);
         // Cooking mode: screen on, "Yes chef" voice, timers (see cook/).
         registerPlugin(CookPlugin.class);
+        // "Share → Family Track" from other apps: import a recipe (see share/).
+        registerPlugin(SharePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

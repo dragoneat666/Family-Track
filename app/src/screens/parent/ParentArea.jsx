@@ -11,6 +11,7 @@ import ListView from '../../lists/ListView.jsx';
 import { SyncNote } from '../../lists/ui.jsx';
 import { startLists, stopLists, useLists } from '../../lists/store.js';
 import { notify } from '../../notify.js';
+import { onShared } from '../../share.js';
 import RemindersScreen from '../../reminders/RemindersScreen.jsx';
 import { useReminders, refreshReminders, todayNote } from '../../reminders/data.js';
 import CalendarScreen from '../../calendar/CalendarScreen.jsx';
@@ -60,6 +61,13 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
     startLists(account, { onAuthLost });
     return stopLists;
   }, [account.id]);
+  // Something shared to the app (a video, a recipe page): import it.
+  const [shared, setShared] = useState(null); // { text, at }
+  useEffect(() => onShared((text) => {
+    setFullScreen(null);
+    setScreen('recipes');
+    setShared({ text, at: Date.now() });
+  }), []);
   // Tapping a notification opens what it's about.
   useEffect(() => notify.onTap((tap) => {
     if (tap.screen === 'list') openList(tap.list, tap.item);
@@ -102,7 +110,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
         {screen === 'lists' && <ListsTab openList={openList} />}
         {screen === 'reminders' && <RemindersScreen account={account} onAuthLost={onAuthLost} />}
         {screen === 'contacts' && <ContactsScreen canEdit onAuthLost={onAuthLost} />}
-        {screen === 'recipes' && <RecipesScreen canEdit onAuthLost={onAuthLost} />}
+        {screen === 'recipes' && <RecipesScreen canEdit onAuthLost={onAuthLost} shared={shared} />}
         {screen === 'kids' && (
           <div className="stack">
             <OverviewTab onAuthLost={onAuthLost} />

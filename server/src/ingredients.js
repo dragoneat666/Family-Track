@@ -47,6 +47,8 @@ const unitOf = (w) => UNIT_OF.get(w) ?? (w.length > 1 ? UNIT_OF.get(w.toLowerCas
 
 // A number at the start: 2, 1.5, 1/2, 1 1/2, ½, 1½, 1-½.
 const NUM = String.raw`(?:\d+\s*[-\s]\s*\d+\/\d+|\d+\/\d+|\d*(?:[.,]\d+)?\s*[¼½¾⅓⅔⅛⅜⅝⅞⅕⅙]|\d+(?:[.,]\d+)?)`;
+// A line that starts with an amount ("2 cups", "½ tsp", "1/2", "2lb").
+export const AMOUNT_START = new RegExp(String.raw`^${NUM}(?=\s|[a-zA-Z]|$)`);
 const AMOUNT = new RegExp(String.raw`^(${NUM})(?:\s*(?:-|–|to)\s*(${NUM}))?\s*`);
 
 export function number(s) {

@@ -530,6 +530,16 @@ read, photo included. A few big sites turn the server away; add those by
 hand. Only addresses out on the internet are fetched, never anything on the
 home network. Importing the same page again opens the copy already here.
 
+**Videos** (TikTok, Instagram, Facebook): the recipe is usually in the
+caption, and none of those sites let the server read it, so paste the
+caption (with the video's link, to keep it). Family Track picks out the
+name, the ingredients and the steps and opens it in the editor to check
+before saving. If the caption only links to a recipe page, that page is
+imported instead. A video's link on its own asks for the caption.
+
+**Share → Family Track** (the Android app): sharing a video or a recipe page
+from another app opens the import with it.
+
 Photos are kept in the data folder (`data/recipes`).
 
 ### Cooking mode
