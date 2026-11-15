@@ -5,6 +5,7 @@ import android.os.Bundle;
 import com.dragoneat666.familytrack.contacts.ContactsPlugin;
 import com.dragoneat666.familytrack.cook.CookPlugin;
 import com.dragoneat666.familytrack.notify.NotifyPlugin;
+import com.dragoneat666.familytrack.read.ReadPlugin;
 import com.dragoneat666.familytrack.share.SharePlugin;
 import com.getcapacitor.BridgeActivity;
 
@@ -19,6 +20,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CookPlugin.class);
         // "Share → Family Track" from other apps: import a recipe (see share/).
         registerPlugin(SharePlugin.class);
+        // Recipes from screenshots, or from the screen as a video plays (see read/).
+        registerPlugin(ReadPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

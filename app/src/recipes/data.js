@@ -94,12 +94,13 @@ const slow = (path, body) => api.request('POST', path, body, { timeout: 240000 }
 // { id } (saved: a recipe page, or already here), { draft, picture, found }
 // (read from a caption: check it in the editor, then save) or { needText }
 // (Instagram / Facebook: paste the caption).
-export async function importRecipe(typed, fromUrl = null) {
+// textOnly: it's text read off the screen, so a web address in it isn't fetched.
+export async function importRecipe(typed, fromUrl = null, textOnly = false) {
   const url = typed.match(/https?:\/\/[^\s<>"]+/i)?.[0]?.replace(/[.,)!]+$/, '') || null;
   const rest = (url ? typed.replace(url, ' ') : typed).trim();
-  const r = url && !fromUrl
+  const r = url && !fromUrl && !textOnly
     ? await slow('/api/recipes/import/url', { url, text: rest })
-    : await slow('/api/recipes/import/text', { text: typed, url: fromUrl || url });
+    : await slow('/api/recipes/import/text', { text: typed, url: fromUrl || (textOnly ? null : url) });
   return r.id ? after(r) : r;
 }
 export const importFromPage = (url) => importRecipe(url);

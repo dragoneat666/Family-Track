@@ -62,11 +62,11 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
     return stopLists;
   }, [account.id]);
   // Something shared to the app (a video, a recipe page): import it.
-  const [shared, setShared] = useState(null); // { text, at }
-  useEffect(() => onShared((text) => {
+  const [shared, setShared] = useState(null); // { text, from, steady, error, at }
+  useEffect(() => onShared((item) => {
     setFullScreen(null);
     setScreen('recipes');
-    setShared({ text, at: Date.now() });
+    setShared({ ...item, at: Date.now() });
   }), []);
   // Tapping a notification opens what it's about.
   useEffect(() => notify.onTap((tap) => {

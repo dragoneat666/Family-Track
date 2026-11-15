@@ -538,7 +538,25 @@ before saving. If the caption only links to a recipe page, that page is
 imported instead. A video's link on its own asks for the caption.
 
 **Share → Family Track** (the Android app): sharing a video or a recipe page
-from another app opens the import with it.
+from another app opens the import with it. Sharing screenshots works too.
+
+**Off the screen** (the Android app), for videos whose caption doesn't have
+the recipe, or that can't be copied. The text is read on the phone (Google's
+on-device text reader, through Play services); **only the text is used, and
+the pictures and screen are never saved or sent anywhere**.
+
+- **📷 From screenshots**: open the caption all the way (…more), take one or
+  two screenshots, and pick them (or share them to Family Track).
+- **🎬 Read it as it plays**: Family Track steps aside and reads the words
+  that show up on the video while it plays, start to finish. A red bubble
+  shows it's reading; tap it (or **Done** in the notification) when the
+  video is over and the recipe opens in the editor. Words that stay on screen
+  the whole time (often the name, or the account) are set aside in the notes.
+  For a recipe that's only said out loud, turn on the video's captions first.
+  It needs Android 10 or newer, **Display over other apps** turned on for
+  Family Track (asked the first time, for the bubble), and Android's
+  "Start recording?" OK each time. It stops by itself after 10 minutes.
+  Amounts are often missing from what's shown, so check it over.
 
 Photos are kept in the data folder (`data/recipes`).
 

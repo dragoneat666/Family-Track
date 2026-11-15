@@ -59,6 +59,9 @@ dependencies {
     implementation project(':capacitor-android')
     // Background check for reminders (notify/SyncWorker)
     implementation "androidx.work:work-runtime:$androidxWorkVersion"
+    // Reading text in screenshots and on screen (read/TextReader), on the
+    // phone, with the reader from Google Play services.
+    implementation "com.google.android.gms:play-services-mlkit-text-recognition:$mlkitTextVersion"
     testImplementation "junit:junit:$junitVersion"
     testImplementation "org.robolectric:robolectric:$robolectricVersion"
     testImplementation "androidx.test:core:$androidxTestCoreVersion"

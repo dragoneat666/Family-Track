@@ -29,6 +29,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <!-- Screenshots of a recipe (their text is read on the phone). -->
+            <intent-filter android:label="@string/share_label">
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
 
         </activity>
 
@@ -50,6 +57,10 @@
         <receiver android:name=".notify.ActionReceiver" android:exported="false" android:directBootAware="true" />
         <!-- Cooking timers going off, and their Stop / Cancel buttons. -->
         <receiver android:name=".cook.TimerReceiver" android:exported="false" />
+        <!-- "Read a reel as it plays": screen recording, text read on the phone. -->
+        <service android:name=".read.WatchService" android:exported="false" android:foregroundServiceType="mediaProjection" />
+        <!-- The text reader comes from Google Play services. -->
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="ocr" />
         <receiver android:name=".notify.BootReceiver" android:exported="false" android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
@@ -69,6 +80,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- "Read a reel as it plays": the bubble over the video, and the screen
+         recording it runs as (Android asks "Start recording?" each time). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Front camera for brushing; frames never leave the device -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />

@@ -7,6 +7,7 @@ import {
 import { Photo } from './Photo.jsx';
 import { Planner, PlanRecipe, GrocerySheet } from './Planner.jsx';
 import CookMode, { TimerBar } from './CookMode.jsx';
+import { canReadScreen, readScreenshots, watchReel, WATCH_WHY, cleanScreenText, rememberLink, takeLink } from './screen.js';
 
 const TAB = 'ft.meals.tab';
 const savedTab = () => { try { return localStorage.getItem(TAB) || 'plan'; } catch { return 'plan'; } };
@@ -37,7 +38,7 @@ export default function RecipesScreen({ canEdit, onAuthLost, shared }) {
   const [open, setOpenState] = useState(null); // { id, serves }
   const setOpen = (id, serves) => setOpenState(id == null ? null : { id, serves });
   const [editing, setEditing] = useState(null); // a recipe being made or changed
-  const [importing, setImporting] = useState(false); // true, or { text } shared from another app
+  const [importing, setImporting] = useState(false); // true, or what came into the app ({ text, from, steady, at })
   const [editPhoto, setEditPhoto] = useState(null); // the video's picture, for a recipe read from its caption
   const [editNote, setEditNote] = useState('');
 
@@ -47,7 +48,7 @@ export default function RecipesScreen({ canEdit, onAuthLost, shared }) {
     pickTab('recipes');
     setOpenState(null);
     setEditing(null);
-    setImporting({ text: shared.text });
+    setImporting(shared);
   }, [shared?.at]);
 
   useEffect(() => {
@@ -154,7 +155,7 @@ export default function RecipesScreen({ canEdit, onAuthLost, shared }) {
       </ul>
 
       {importing && (
-        <ImportSheet start={importing.text || ''} offline={offline} onClose={() => setImporting(false)}
+        <ImportSheet key={importing.at || 'typed'} start={importing === true ? null : importing} offline={offline} onClose={() => setImporting(false)}
           onOpen={(id) => { setImporting(false); setOpen(id); }}
           onDraft={(draft, photo, note) => { setImporting(false); edit(fromDraft(draft), photo, note); }} />
       )}
@@ -370,17 +371,23 @@ function RecipeEditor({ start, startPhoto, note, offline, onClose, onSaved, onDe
 }
 
 // Bring a recipe in: a recipe page's address, a TikTok / Instagram /
-// Facebook video (its caption), or a recipe's text pasted. start: what was
-// shared from another app, imported straight away.
+// Facebook video (its caption), a recipe's text pasted, screenshots, or the
+// screen read as a video plays. start: something that came into the app
+// ({ text, from: 'share' | 'screenshots' | 'screen', steady, error }),
+// imported straight away.
 function ImportSheet({ start, offline, onClose, onOpen, onDraft }) {
-  const [typed, setTyped] = useState(start);
+  const fromScreen = start && (start.from === 'screenshots' || start.from === 'screen');
+  const [typed, setTyped] = useState(start && !fromScreen ? start.text : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ask, setAsk] = useState(null); // { site, sourceUrl, importKey }: paste its caption
   const [caption, setCaption] = useState('');
+  const [watchNote, setWatchNote] = useState('');
   const ran = useRef(false);
+  const pick = useRef(null);
 
-  async function done(r) {
+  // how: 'screen' | 'screenshots' | null, for the note in the editor.
+  async function done(r, how = null, steady = '') {
     if (r.id) return onOpen(r.id);
     if (r.needText) {
       setAsk({ site: r.site, sourceUrl: r.sourceUrl, importKey: r.importKey });
@@ -388,39 +395,95 @@ function ImportSheet({ start, offline, onClose, onOpen, onDraft }) {
       return undefined;
     }
     const photo = await pictureFile(r.picture).catch(() => null);
-    const site = r.site === 'TikTok' ? 'the TikTok caption' : 'the caption';
-    return onDraft(r.draft, photo, r.found
-      ? `Read from ${site}. Check it over, then Save.`
-      : `Couldn't find the ingredients and steps in ${site}. Fill them in (often they're said in the video), then Save.`);
+    const draft = { ...r.draft };
+    if (how === 'screen' && steady) {
+      draft.notes = [draft.notes, `On screen the whole video (maybe the name):\n${steady.split('\n').slice(0, 8).join('\n')}`].filter(Boolean).join('\n\n');
+    }
+    const what = how === 'screen' ? 'the screen as the video played' : how === 'screenshots' ? 'your screenshots' : r.site === 'TikTok' ? 'the TikTok caption' : 'the caption';
+    let note = r.found
+      ? `Read from ${what}. Check it over, then Save.`
+      : `Couldn't find the ingredients and steps in ${what}. Fill them in, then Save.`;
+    if (how === 'screen' && r.found) note = `Read from ${what}. Amounts are often missing from what's shown, so check it over, then Save.`;
+    return onDraft(draft, photo, note);
   }
-  async function go(text, fromUrl) {
+  async function go(text, fromUrl, how, steady) {
     setBusy(true);
     setError('');
     try {
-      await done(await importRecipe(text, fromUrl));
+      await done(await importRecipe(text, fromUrl, !!how), how, steady);
     } catch (e) {
       setError(e.message);
       setBusy(false);
     }
   }
-  useEffect(() => {
-    if (start && !ran.current && !offline) {
-      ran.current = true;
-      go(start);
+  // Text read off the screen (or screenshots): a recipe from it.
+  function fromRead(text, how, steady = '', readError = null) {
+    const link = takeLink() || ask?.sourceUrl || null;
+    const clean = cleanScreenText(text || '');
+    if (!clean.trim()) {
+      setError(readError || (how === 'screen'
+        ? "Didn't catch any text on screen. Try again with the video playing (turn on its captions if the recipe is only said out loud)."
+        : "Didn't find any text in those pictures."));
+      return;
     }
+    go(clean, link || '', how, steady);
+  }
+  useEffect(() => {
+    if (!start || ran.current || offline) return;
+    ran.current = true;
+    if (fromScreen) fromRead(start.text, start.from, start.steady, start.error);
+    else if (start.text) go(start.text);
   }, []);
+
+  async function screenshots(e) {
+    const files = e.target.files;
+    if (!files?.length) return;
+    setBusy(true);
+    setError('');
+    try {
+      const r = await readScreenshots(files);
+      e.target.value = '';
+      setBusy(false);
+      fromRead(r.text, 'screenshots', '', r.error);
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+  async function watch() {
+    setError('');
+    setWatchNote('');
+    rememberLink(ask?.sourceUrl || null);
+    const r = await watchReel().catch(() => ({ ok: false, reason: 'failed' }));
+    if (r.ok) setWatchNote('Play the video from the start. When it\'s over, tap the red bubble, and the recipe opens here.');
+    else setError(WATCH_WHY[r.reason] || WATCH_WHY.failed);
+  }
+
+  const screenButtons = canReadScreen && (
+    <div className="stack tight">
+      <div className="row wrap">
+        <button className="btn" disabled={busy || offline} onClick={() => pick.current?.click()}>📷 From screenshots</button>
+        <button className="btn" disabled={busy || offline} onClick={watch}>🎬 Read it as it plays</button>
+        <input ref={pick} type="file" accept="image/*" multiple hidden onChange={screenshots} />
+      </div>
+      <p className="muted small">
+        <b>Screenshots</b>: open the caption all the way (…more) and take one or two. <b>As it plays</b>: Family Track reads the words that
+        show up on the video while you watch it; turn on the video's captions to catch what's said out loud too.
+      </p>
+      {watchNote && <p className="sync-note">{watchNote}</p>}
+    </div>
+  );
 
   if (ask) {
     return (
-      <Sheet title="Paste the caption" onClose={onClose} closeLabel="Close" wide discard={caption.trim() && !busy ? 'Throw away what you pasted?' : null}>
-        <p>{ask.site} doesn't let Family Track read its videos. In {ask.site}, copy the caption (where the recipe usually is) and paste it here.</p>
-        <p className="muted small">If it won't let you copy the caption, many Android phones can copy text straight off the screen: open Recent apps and
-          tap <b>Select</b>, or use Circle to Search. Family Track keeps the link either way.</p>
-        <textarea rows={10} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Paste the caption…" autoFocus />
-        {error && <p className="error">{error}</p>}
+      <Sheet title="Get the recipe" onClose={onClose} closeLabel="Close" wide discard={caption.trim() && !busy ? 'Throw away what you pasted?' : null}>
+        <p>{ask.site} doesn't let Family Track read its videos. Paste the caption, or let Family Track read it off the screen.</p>
+        <textarea rows={8} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Paste the caption…" />
         <button className="btn primary" disabled={busy || offline || !caption.trim()} onClick={() => go(caption, ask.sourceUrl)}>
           {busy ? 'Reading it…' : '📥 Make a recipe from it'}
         </button>
+        {screenButtons}
+        {error && <p className="error">{error}</p>}
         <button className="btn" disabled={busy} onClick={() => onDraft({ sourceUrl: ask.sourceUrl, importKey: ask.importKey }, null, `From ${ask.site}. Type it in, then Save.`)}>
           ✏️ Type it in myself
         </button>
@@ -438,11 +501,12 @@ function ImportSheet({ start, offline, onClose, onOpen, onDraft }) {
         A recipe page's address (most recipe sites work), or a recipe's text, like a TikTok, Instagram or Facebook
         caption (with the video's link, to keep it). On the phone you can also tap <b>Share → Family Track</b> in those apps.
       </p>
-      {busy && start && <p className="muted">Reading what you shared…</p>}
-      {error && <p className="error">{error}</p>}
       <button className="btn primary" disabled={busy || offline || !ready} onClick={() => go(typed)}>
         {busy ? 'Reading it…' : '📥 Import it'}
       </button>
+      {screenButtons}
+      {busy && start && <p className="muted">{fromScreen ? 'Reading what was on screen…' : 'Reading what you shared…'}</p>}
+      {error && <p className="error">{error}</p>}
     </Sheet>
   );
 }
