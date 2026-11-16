@@ -1,11 +1,101 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { BuildScene } from '../three/buildScene.js';
+import ScenePuzzle from '../scenes/ScenePuzzle.jsx';
+import BackgroundPicker from '../scenes/BackgroundPicker.jsx';
+import { scenePicture } from '../scenes/picture.js';
 
 // Either a kid's real build (profile: their active character, or
 // characterId from the Characters screen) or a parent test run (testCharacter:
-// every piece unlocked, nothing saved; level picks easy/medium/hard).
+// every piece unlocked, nothing saved; level picks easy/medium/hard). A
+// background (kind 'scene') is a jigsaw instead of a 3D build.
 export default function Build({ profile, characterId, testCharacter, level: testLevel = 'easy', onExit }) {
+  const [loaded, setLoaded] = useState(null); // { c, lvl, background }
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        let c;
+        let lvl = testLevel;
+        let background = null;
+        if (testCharacter) {
+          c = { ...testCharacter, pieces: testCharacter.pieces.map((p) => ({ ...p, unlocked: true, placed: false })) };
+        } else if (characterId) {
+          // Any character the kid picked on the Characters screen.
+          const r = await api.get(`/api/kids/${profile.id}/characters/${characterId}`);
+          c = r.character;
+          lvl = r.puzzleLevel || 'easy';
+          background = r.background || null;
+        } else {
+          const state = await api.get(`/api/kids/${profile.id}/state`);
+          c = state.character;
+          lvl = state.puzzleLevel || 'easy';
+          background = state.background || null;
+          if (!c || c.status !== 'ready') throw new Error('Nothing to build yet.');
+        }
+        if (!cancelled) setLoaded({ c, lvl, background });
+      } catch (e) {
+        if (!cancelled) setError(e.message || 'Could not load it.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loaded?.c.kind === 'scene') {
+    return <SceneBuild profile={profile} test={!!testCharacter} start={loaded.c} level={loaded.lvl} background={loaded.background} onExit={onExit} />;
+  }
+  if (loaded) return <Build3D profile={profile} testCharacter={testCharacter} loaded={loaded} onExit={onExit} />;
+  return (
+    <div className="build-screen">
+      <header className="build-header">
+        <button data-back className="btn" onClick={onExit}>← Back</button>
+      </header>
+      <div className="build-stage">
+        <div className={`stage-msg${error ? ' error' : ''}`}>{error || <><div className="spinner" />Loading…</>}</div>
+      </div>
+    </div>
+  );
+}
+
+// A background puzzle, saving each piece as it goes in.
+function SceneBuild({ profile, test, start, level, background, onExit }) {
+  const [c, setC] = useState(start);
+  const [error, setError] = useState('');
+  const [picking, setPicking] = useState(false);
+  const [using, setUsing] = useState(background);
+
+  async function place(pieceId) {
+    if (test) return;
+    try {
+      const state = await api.post(`/api/kids/${profile.id}/place`, { pieceId });
+      setC(state.character);
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  const footer = !test && (
+    <div className="dance-buttons">
+      {using?.id === c.id
+        ? <span className="good">✓ It’s behind your characters now!</span>
+        : <button className="btn primary big" onClick={() => setPicking(true)}>🖼️ Put it behind my characters</button>}
+    </div>
+  );
+  return (
+    <>
+      <ScenePuzzle character={c} level={level} test={test} onPlace={place} onExit={onExit} footer={footer} />
+      {error && <p className="error floating-error">{error}</p>}
+      {picking && (
+        <BackgroundPicker profile={profile} current={using} onClose={() => setPicking(false)}
+          onPicked={(b) => { setUsing(b); setPicking(false); }} />
+      )}
+    </>
+  );
+}
+
+function Build3D({ profile, testCharacter, loaded, onExit }) {
   const holderRef = useRef(null);
   const sceneRef = useRef(null);
   const sayTimer = useRef(null);
@@ -18,27 +108,16 @@ export default function Build({ profile, characterId, testCharacter, level: test
   const [error, setError] = useState('');
   const [dancing, setDancing] = useState(null);
   const [revealing, setRevealing] = useState(null); // dress up: the body part under the clouds
+  const [background, setBackground] = useState(loaded.background);
+  const [backdrop, setBackdrop] = useState(null); // its picture's address
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     let scene;
     let cancelled = false;
     (async () => {
       try {
-        let c;
-        let lvl = testLevel;
-        if (testCharacter) {
-          c = { ...testCharacter, pieces: testCharacter.pieces.map((p) => ({ ...p, unlocked: true, placed: false })) };
-        } else if (characterId) {
-          // Any character the kid picked on the Characters screen.
-          const r = await api.get(`/api/kids/${profile.id}/characters/${characterId}`);
-          c = r.character;
-          lvl = r.puzzleLevel || 'easy';
-        } else {
-          const state = await api.get(`/api/kids/${profile.id}/state`);
-          c = state.character;
-          lvl = state.puzzleLevel || 'easy';
-          if (!c || c.status !== 'ready') throw new Error('Nothing to build yet.');
-        }
+        const { c, lvl } = loaded;
         if (cancelled) return;
         setCharacter(c);
         setLevel(lvl);
@@ -69,6 +148,14 @@ export default function Build({ profile, characterId, testCharacter, level: test
       scene?.destroy();
     };
   }, []);
+
+  // The kid's background, behind a finished character.
+  useEffect(() => {
+    let live = true;
+    setBackdrop(null);
+    if (background) scenePicture(background).then((p) => live && setBackdrop(p.url)).catch(() => {});
+    return () => { live = false; };
+  }, [background?.id, background?.version]);
 
   function say(next) {
     clearTimeout(sayTimer.current);
@@ -162,7 +249,8 @@ export default function Build({ profile, characterId, testCharacter, level: test
           {testCharacter && <span className="test-pill">Test</span>}
         </div>
       </header>
-      <div className="build-stage" ref={holderRef}>
+      <div className={`build-stage${complete && backdrop ? ' with-backdrop' : ''}`} ref={holderRef}
+        style={complete && backdrop ? { backgroundImage: `url(${backdrop})` } : undefined}>
         {loading && <div className="stage-msg"><div className="spinner" />Loading…</div>}
         {error && <div className="stage-msg error">{error}</div>}
       </div>
@@ -176,6 +264,9 @@ export default function Build({ profile, characterId, testCharacter, level: test
             {level === 'hard' && <button className="btn big turn" onClick={() => sceneRef.current?.turn(-1)} disabled={!turnable} aria-label="Turn right">⟳</button>}
           </div>
         )}
+        {complete && !testCharacter && (
+          <button className="btn big" onClick={() => setPicking(true)} title="Background">🖼️</button>
+        )}
         {canDance && (
           <div className="dance-buttons">
             <button className="btn primary big" onClick={dance} disabled={dancing?.loading}>
@@ -185,6 +276,10 @@ export default function Build({ profile, characterId, testCharacter, level: test
           </div>
         )}
       </footer>
+      {picking && (
+        <BackgroundPicker profile={profile} current={background} onClose={() => setPicking(false)}
+          onPicked={(b) => { setBackground(b); setPicking(false); }} />
+      )}
     </div>
   );
 }

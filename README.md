@@ -213,6 +213,27 @@ kept, so a kid can switch and come back. The wait between pieces is per kid,
 so switching doesn't earn an extra one. Grown-ups can still set a kid's
 character in Settings → Accounts.
 
+### Backgrounds (picture puzzles)
+
+A background is a picture the kids put together as a jigsaw. Add it in Kids
+Setup → Characters → Add a character → **Background**: a name, a **group**
+(like "Transformers"; kids see backgrounds by group) and the picture (JPG or
+PNG, wide works best; the server makes it 1920 px and turns it the right way
+up). The app cuts it into 9 jigsaw pieces (3 × 3). The shapes come from the
+background's id, so they're the same every time and on every tablet.
+
+Kids pick one on their Characters screen (**Work on this one**), and then
+brushing earns its pieces one per brush, the same as a character's (same wait,
+same **Give next piece**). The pieces wait next to the frame. Drag one close
+to where it goes and it clicks in. Easy shows the picture faintly in the
+frame. Medium shows only the shapes. Hard hands pieces out turned, and a tap
+turns one.
+
+A finished background can go behind any finished character: **Put it behind
+my characters** on its page, or the 🖼️ button when looking at a finished
+character (pick from the finished ones by group, or none). A new picture for a
+background keeps everyone's pieces.
+
 ### Each character's page
 
 Characters shows every character as a tile; tapping one opens its page:

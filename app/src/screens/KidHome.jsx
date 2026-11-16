@@ -43,8 +43,10 @@ export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExe
 
           {ready ? (
             <button className="big-action build" onClick={onBuild}>
-              <span className="big-emoji">{c.kind === 'dress' ? '👗' : '🤖'}</span>
-              <span className="big-label">{c.complete ? `Play with ${c.name}` : `${c.kind === 'dress' ? 'Dress up' : 'Build'} ${c.name}`}</span>
+              <span className="big-emoji">{c.kind === 'scene' ? '🖼️' : c.kind === 'dress' ? '👗' : '🤖'}</span>
+              <span className="big-label">{c.complete
+                ? (c.kind === 'scene' ? `Look at ${c.name}` : `Play with ${c.name}`)
+                : `${c.kind === 'scene' ? 'Put together' : c.kind === 'dress' ? 'Dress up' : 'Build'} ${c.name}`}</span>
               <span className="progress"><i style={{ width: `${(placed / Math.max(1, c.pieces.length)) * 100}%` }} /></span>
               <span className="small">{placed} of {c.pieces.length} pieces</span>
               {waiting > 0 && <span className="badge new">{waiting === 1 ? 'New piece!' : `${waiting} new pieces!`}</span>}

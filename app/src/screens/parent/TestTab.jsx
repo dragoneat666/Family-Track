@@ -109,7 +109,7 @@ export default function TestTab({ onAuthLost, show }) {
         <LevelSelect value={buildLevel} onChange={setBuildLevel} />
         <div className="row wrap">
           {characters.map((c) => (
-            <button key={c.id} className="btn" onClick={() => testBuild(c)}>{c.kind === 'dress' ? '👗' : '🤖'} {c.name}</button>
+            <button key={c.id} className="btn" onClick={() => testBuild(c)}>{c.kind === 'scene' ? '🖼️' : c.kind === 'dress' ? '👗' : '🤖'} {c.name}</button>
           ))}
         </div>
       </div>

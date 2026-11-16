@@ -14,7 +14,7 @@ export function brushNumbers(pieces, dress) {
   });
 }
 
-export const KIND_EMOJI = { build: '🤖', dress: '👗', partner: '⭐' };
+export const KIND_EMOJI = { build: '🤖', dress: '👗', partner: '⭐', scene: '🖼️' };
 
 // Seconds as "1:05" or "8.4 s".
 export const clock = (s) => (s >= 60 ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : `${s.toFixed(1)} s`);

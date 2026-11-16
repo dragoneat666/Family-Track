@@ -74,14 +74,19 @@ export default function CharactersTab({ onAuthLost }) {
         </button>
       </div>
       {list && !list.length && !adding && <p className="muted">No characters yet. Add the first one.</p>}
-      {adding && <AddCharacter upload={upload} setError={setError} onAdded={(c) => { setAdding(false); if (c?.id) setOpenId(c.id); }} />}
+      {adding && <AddCharacter upload={upload} setError={setError} groups={groupsOf(list)}
+        onAdded={(c) => { setAdding(false); if (c?.id) setOpenId(c.id); }} />}
     </div>
   );
 }
 
+// The background groups so far ("Transformers", …), to pick from.
+export const groupsOf = (list) => [...new Set((list || []).map((c) => c.group).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
 function summary(c) {
   if (c.status === 'processing') return 'Getting ready…';
   if (c.status === 'error') return 'Problem: open it to see';
+  if (c.kind === 'scene') return `Background${c.group ? ` · ${c.group}` : ''} · ${c.pieces.length} pieces`;
   const bits = [];
   if (c.kind !== 'partner') bits.push(`${c.pieces.length} pieces`);
   else bits.push('Exercise partner');
@@ -91,16 +96,31 @@ function summary(c) {
   return bits.join(' · ');
 }
 
-function AddCharacter({ upload, setError, onAdded }) {
+function AddCharacter({ upload, setError, groups, onAdded }) {
   const [name, setName] = useState('');
   const [kind, setKind] = useState('build');
+  const [group, setGroup] = useState('');
   const pieces = useRef(null);
   const exercise = useRef(null);
+  const picture = useRef(null);
   const partnerOnly = kind === 'partner';
+  const scene = kind === 'scene';
 
   async function submit(e) {
     e.preventDefault();
-    if (!name.trim()) return setError('Give the character a name');
+    if (!name.trim()) return setError(scene ? 'Give the background a name' : 'Give the character a name');
+    if (scene) {
+      const pic = picture.current?.files?.[0];
+      if (!pic) return setError('Pick the picture');
+      const form = new FormData();
+      form.append('name', name.trim());
+      form.append('kind', 'scene');
+      form.append('group', group.trim());
+      form.append('picture', pic, pic.name);
+      const r = await upload('POST', '/api/parent/characters', form);
+      if (r) onAdded(r);
+      return;
+    }
     const ex = glbOnly(exercise.current?.files)[0];
     const p = partnerOnly ? [] : glbOnly(pieces.current.files);
     if (partnerOnly && !ex) return setError('Pick the exercise model (.glb)');
@@ -116,16 +136,27 @@ function AddCharacter({ upload, setError, onAdded }) {
 
   return (
     <form className="card stack" onSubmit={submit}>
-      <h3>Add a character</h3>
+      <h3>{scene ? 'Add a background' : 'Add a character'}</h3>
       <div className="row wrap">
-        <input placeholder="Name (e.g. Bumblebee)" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder={scene ? 'Name (e.g. City at night)' : 'Name (e.g. Bumblebee)'} value={name} onChange={(e) => setName(e.target.value)} />
         <select value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="build">Build (snap parts together)</option>
           <option value="dress">Dress up (outfit pieces)</option>
           <option value="partner">Exercise partner only (nothing to build)</option>
+          <option value="scene">Background (a picture puzzle)</option>
         </select>
       </div>
-      {partnerOnly ? (
+      {scene ? (
+        <>
+          <label>Group (kids pick backgrounds by group)
+            <input list="bg-groups" placeholder="e.g. Transformers" value={group} onChange={(e) => setGroup(e.target.value)} />
+            <datalist id="bg-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+          </label>
+          <label>Picture (JPG or PNG; wide pictures work best)
+            <input type="file" accept="image/*" ref={picture} />
+          </label>
+        </>
+      ) : partnerOnly ? (
         <label>Exercise model — one .glb with the model, props and its exercise animations
           <input type="file" accept=".glb" ref={exercise} />
         </label>
@@ -135,7 +166,9 @@ function AddCharacter({ upload, setError, onAdded }) {
           <input type="file" multiple ref={pieces} />
         </label>
       )}
-      <p className="muted small">{partnerOnly
+      <p className="muted small">{scene
+        ? 'It’s cut into 9 jigsaw pieces, one for each brush. Once a kid finishes it, they can stand any of their characters in front of it.'
+        : partnerOnly
         ? 'Every kid can pick an exercise-only partner. Its voice and exercises are set up on its page next.'
         : 'The dancing model, dances and exercise model can be added on its page next. Big files take a minute to get ready.'}</p>
       <button className="btn primary">Upload</button>

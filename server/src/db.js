@@ -494,7 +494,14 @@ const MIGRATIONS = [
   `,
   // A list's color (a name from LIST_COLORS in lists.js), or null for the
   // standard look.
-  `ALTER TABLE lists ADD COLUMN color TEXT;`
+  `ALTER TABLE lists ADD COLUMN color TEXT;`,
+  // Backgrounds (characters of kind 'scene': a picture cut into 9 jigsaw
+  // pieces) belong to a group ("Transformers"), and each kid can stand their
+  // characters in front of one they finished.
+  `
+  ALTER TABLE characters ADD COLUMN grp TEXT;
+  ALTER TABLE profiles ADD COLUMN background_id INTEGER REFERENCES characters(id) ON DELETE SET NULL;
+  `
 ];
 
 const current = db.prepare('PRAGMA user_version').get().user_version;

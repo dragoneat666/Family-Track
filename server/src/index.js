@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import sharp from 'sharp';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,8 +45,10 @@ fs.mkdirSync(TMP_DIR, { recursive: true });
 const upload = multer({
   dest: TMP_DIR,
   limits: { fileSize: 600 * 1024 * 1024, files: 120 },
-  // Dances may also be Mixamo .fbx downloads; everything else is .glb.
-  fileFilter: (req, file, cb) => cb(null, (file.fieldname === 'dances' ? /\.(glb|fbx)$/i : /\.glb$/i).test(file.originalname))
+  // Dances may also be Mixamo .fbx downloads, a background is a picture;
+  // everything else is .glb.
+  fileFilter: (req, file, cb) => cb(null, (file.fieldname === 'dances' ? /\.(glb|fbx)$/i
+    : file.fieldname === 'picture' ? /\.(jpe?g|png|webp|heic|heif|avif)$/i : /\.glb$/i).test(file.originalname))
 });
 
 // ---------- accounts & sign-in ----------
@@ -203,10 +206,28 @@ function kidState(profileId) {
     'SELECT COUNT(*) AS n FROM brush_sessions WHERE profile_id = ? AND local_date = ? AND completed = 1').get(profileId, today()).n;
   const brushedToday = brushesToday > 0;
   const c = activeCharacter(profileId);
+  const background = kidBackground(row);
   if (!c || c.status !== 'ready') {
-    return { profile, brushedToday, brushesToday, puzzleLevel, character: c ? { id: c.id, name: c.name, status: c.status } : null };
+    return { profile, brushedToday, brushesToday, puzzleLevel, background, character: c ? { id: c.id, name: c.name, status: c.status } : null };
   }
-  return { profile, brushedToday, brushesToday, puzzleLevel, character: kidCharacter(profileId, c, profile.isTest) };
+  return { profile, brushedToday, brushesToday, puzzleLevel, background, character: kidCharacter(profileId, c, profile.isTest) };
+}
+
+// A background is finished when every one of its pieces is placed.
+function sceneDone(profileId, sceneId) {
+  return !!db.prepare(`
+    SELECT COUNT(*) AS n, SUM(u.placed_at IS NOT NULL) AS placed FROM pieces p
+    LEFT JOIN unlocks u ON u.piece_id = p.id AND u.profile_id = ?
+    WHERE p.character_id = ?`).all(profileId, sceneId).find((r) => r.n > 0 && r.placed === r.n);
+}
+
+// The background a kid picked to stand their characters in front of (one
+// they finished), or null.
+function kidBackground(row) {
+  if (!row.background_id) return null;
+  const c = db.prepare("SELECT * FROM characters WHERE id = ? AND kind = 'scene' AND status = 'ready'").get(row.background_id);
+  if (!c || !sceneDone(row.id, c.id)) return null;
+  return { id: c.id, name: c.name, group: c.grp || '', version: c.version };
 }
 
 // One kid's progress on one (ready) character: their pieces, dances, and
@@ -223,7 +244,7 @@ function kidCharacter(profileId, c, isTest = !!profileRow(profileId).is_test) {
   const settings = getSettings();
   const waitUntil = nextPiece && !isTest ? nextPieceAt(profileId, c, settings) : null;
   return {
-    id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version,
+    id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version, group: c.grp || '',
     hasRigged: !!c.has_rigged,
     pieces: pieces.map((p) => ({
       id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt,
@@ -273,8 +294,22 @@ app.get('/api/kids/:id/characters/:characterId', (req, res) => {
   const row = profileRow(profileId);
   res.json({
     character: { ...kidCharacter(profileId, c), active: activeCharacter(profileId)?.id === c.id },
-    puzzleLevel: PUZZLE_LEVELS.includes(row.puzzle_level) ? row.puzzle_level : 'easy'
+    puzzleLevel: PUZZLE_LEVELS.includes(row.puzzle_level) ? row.puzzle_level : 'easy',
+    background: kidBackground(row)
   });
+});
+
+// The background behind a kid's characters: one they finished, or none.
+app.put('/api/kids/:id/background', (req, res) => {
+  const row = profileRow(Number(req.params.id));
+  const id = req.body?.characterId ? Number(req.body.characterId) : null;
+  if (id) {
+    const c = characterRow(id);
+    if (c.kind !== 'scene') throw httpError(400, 'That one isn’t a background');
+    if (!sceneDone(row.id, c.id)) throw httpError(400, `Finish the ${c.name} puzzle first`);
+  }
+  db.prepare('UPDATE profiles SET background_id = ? WHERE id = ?').run(id, row.id);
+  res.json({ background: kidBackground(profileRow(row.id)) });
 });
 
 // Kids pick their own character (grown-ups can still set it in Accounts).
@@ -435,6 +470,12 @@ function sendAsset(res, file) {
   res.type('model/gltf-binary').sendFile(file);
 }
 app.get('/api/characters/:id/build.glb', (req, res) => sendAsset(res, path.join(characterDir(Number(req.params.id)), 'build.glb')));
+app.get('/api/characters/:id/scene.jpg', (req, res) => {
+  const file = path.join(characterDir(Number(req.params.id)), 'scene.jpg');
+  if (!fs.existsSync(file)) throw httpError(404, 'File not found');
+  res.set('Cache-Control', 'private, max-age=31536000, immutable');
+  res.type('image/jpeg').sendFile(file);
+});
 app.get('/api/characters/:id/rigged.glb', (req, res) => sendAsset(res, path.join(characterDir(Number(req.params.id)), 'rigged.glb')));
 app.get('/api/characters/:id/dances/:danceId.glb', (req, res) =>
   sendAsset(res, path.join(characterDir(Number(req.params.id)), 'dances', `${Number(req.params.danceId)}.glb`)));
@@ -739,6 +780,7 @@ function characterDetail(c) {
   const ex = c.exercise ? safeJson(c.exercise) : null;
   return {
     id: c.id, name: c.name, kind: c.kind, status: c.status, error: c.error, hasRigged: !!c.has_rigged, version: c.version,
+    group: c.grp || '',
     pieces: db.prepare('SELECT id, name, node_name AS nodeName, reveal FROM pieces WHERE character_id = ? ORDER BY sort, id').all(c.id)
       .map((p) => ({ ...p, reveal: !!p.reveal })),
     dances: db.prepare('SELECT id, name, status, error FROM dances WHERE character_id = ? ORDER BY id').all(c.id),
@@ -763,9 +805,46 @@ parent.get('/characters', (req, res) => {
 });
 
 const characterUpload = upload.fields([
-  { name: 'pieces', maxCount: 60 }, { name: 'rigged', maxCount: 1 }, { name: 'dances', maxCount: 60 }, { name: 'exercise', maxCount: 1 }
+  { name: 'pieces', maxCount: 60 }, { name: 'rigged', maxCount: 1 }, { name: 'dances', maxCount: 60 }, { name: 'exercise', maxCount: 1 },
+  { name: 'picture', maxCount: 1 }
 ]);
-const KINDS = ['build', 'dress', 'partner'];
+const KINDS = ['build', 'dress', 'partner', 'scene'];
+const cleanGroup = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+
+// A background: the picture, made a sensible size for the tablets (turned
+// the right way up), kept as scene.jpg. It's cut into SCENE_PIECES jigsaw
+// pieces in the app (the shapes come from the background's id, so they never
+// change); here the pieces are just rows to unlock and place, in a random
+// order.
+const SCENE_ROWS = 3;
+const SCENE_COLS = 3;
+async function savePicture(characterId, file) {
+  try {
+    const dir = characterDir(characterId);
+    fs.mkdirSync(dir, { recursive: true });
+    await sharp(file.path).rotate().resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
+      .flatten({ background: '#ffffff' }).jpeg({ quality: 86, mozjpeg: true }).toFile(path.join(dir, 'scene.tmp'));
+    fs.renameSync(path.join(dir, 'scene.tmp'), path.join(dir, 'scene.jpg'));
+    db.transaction(() => {
+      if (!db.prepare('SELECT COUNT(*) AS n FROM pieces WHERE character_id = ?').get(characterId).n) {
+        const cells = [];
+        for (let r = 0; r < SCENE_ROWS; r++) for (let col = 0; col < SCENE_COLS; col++) cells.push([r, col]);
+        for (let i = cells.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cells[i], cells[j]] = [cells[j], cells[i]];
+        }
+        cells.forEach(([r, col], i) => db.prepare('INSERT INTO pieces (character_id, name, sort, node_name) VALUES (?, ?, ?, ?)')
+          .run(characterId, `Piece ${i + 1}`, i, `${r},${col}`));
+      }
+      db.prepare("UPDATE characters SET status = 'ready', error = NULL, version = ? WHERE id = ?").run(newVersion(), characterId);
+    })();
+  } catch (e) {
+    console.error('background picture', characterId, e);
+    db.prepare("UPDATE characters SET status = 'error', error = ? WHERE id = ?").run("That picture couldn't be read. Try a JPG or PNG.", characterId);
+  } finally {
+    cleanupFiles([file]);
+  }
+}
 
 parent.post('/characters', characterUpload, (req, res) => {
   const files = req.files || {};
@@ -773,6 +852,14 @@ parent.post('/characters', characterUpload, (req, res) => {
   const kind = KINDS.includes(req.body.kind) ? req.body.kind : 'build';
   if (!String(req.body.name || '').trim()) { cleanup(req); throw httpError(400, 'Name is required'); }
   if (kind === 'partner' && !files.exercise?.[0]) { cleanup(req); throw httpError(400, 'Add the exercise model (.glb)'); }
+  if (kind === 'scene') {
+    if (!files.picture?.[0]) { cleanup(req); throw httpError(400, 'Add the picture (JPG or PNG)'); }
+    const id = db.prepare("INSERT INTO characters (name, kind, status, grp) VALUES (?, 'scene', 'processing', ?)")
+      .run(String(req.body.name).trim().slice(0, 60), cleanGroup(req.body.group) || null).lastInsertRowid;
+    cleanupFiles([...pieces, ...(files.rigged || []), ...(files.dances || []), ...(files.exercise || [])]);
+    enqueue([() => savePicture(id, files.picture[0])]);
+    return res.status(202).json(characterDetail(characterRow(id)));
+  }
   if (kind !== 'partner' && !pieces.length) { cleanup(req); throw httpError(400, 'Add at least one piece (.glb)'); }
   // A partner-only character has nothing to build, so it's ready straight away.
   const id = db.prepare('INSERT INTO characters (name, kind, status, partner_for_all) VALUES (?, ?, ?, ?)')
@@ -795,9 +882,9 @@ parent.put('/characters/:id', (req, res) => {
   const b = req.body;
   db.transaction(() => {
     // A partner-only character stays one (it has no pieces to build).
-    const kind = c.kind !== 'partner' && (b.kind === 'dress' || b.kind === 'build') ? b.kind : c.kind;
-    db.prepare('UPDATE characters SET name = ?, kind = ? WHERE id = ?').run(
-      String(b.name ?? c.name).trim().slice(0, 60) || c.name, kind, c.id);
+    const kind = c.kind !== 'partner' && c.kind !== 'scene' && (b.kind === 'dress' || b.kind === 'build') ? b.kind : c.kind;
+    db.prepare('UPDATE characters SET name = ?, kind = ?, grp = ? WHERE id = ?').run(
+      String(b.name ?? c.name).trim().slice(0, 60) || c.name, kind, 'group' in b ? cleanGroup(b.group) || null : c.grp, c.id);
     // pieces: full list in the new unlock order, with names and which are
     // body parts (dress up reveals those instead of placing them)
     (b.pieces || []).forEach((p, i) => {
@@ -917,8 +1004,20 @@ parent.delete('/characters/:id/exercise', (req, res) => {
   res.json(characterDetail(characterRow(c.id)));
 });
 
+// A background's picture swapped for another (or the same one, sharper):
+// everyone's progress on its pieces is kept.
+parent.post('/characters/:id/picture', upload.single('picture'), (req, res) => {
+  const c = characterRow(Number(req.params.id));
+  if (c.kind !== 'scene') { if (req.file) cleanupFiles([req.file]); throw httpError(400, 'Only backgrounds have a picture'); }
+  if (!req.file) throw httpError(400, 'Pick a JPG or PNG picture');
+  db.prepare("UPDATE characters SET status = 'processing', error = NULL WHERE id = ?").run(c.id);
+  enqueue([() => savePicture(c.id, req.file)]);
+  res.status(202).json(characterDetail(characterRow(c.id)));
+});
+
 parent.post('/characters/:id/pieces', upload.array('pieces', 60), (req, res) => {
   const c = characterRow(Number(req.params.id));
+  if (c.kind === 'scene') { cleanupFiles(req.files || []); throw httpError(400, 'A background is cut into pieces by itself'); }
   if (!req.files?.length) throw httpError(400, 'No .glb files received');
   const splits = addPieces(c.id, req.files);
   db.prepare("UPDATE characters SET status = 'processing', error = NULL WHERE id = ?").run(c.id);
