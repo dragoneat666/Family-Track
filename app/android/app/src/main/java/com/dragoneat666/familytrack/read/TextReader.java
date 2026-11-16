@@ -63,7 +63,14 @@ public final class TextReader {
         }
     }
 
-    /** Several pictures in turn: all their lines, with repeats (screenshots that overlap) left out. */
+    /** Marks where one picture's text ends and the next one's starts. */
+    public static final String NEXT_PICTURE = "\f";
+
+    /**
+     * Several pictures in turn: their text (see lines()), a NEXT_PICTURE line
+     * between pictures, and lines already read in an earlier picture (where
+     * screenshots overlap) left out.
+     */
     public static void readAll(List<InputImage> images, Done done) {
         List<String> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
@@ -76,27 +83,41 @@ public final class TextReader {
             return;
         }
         read(images.get(i), (lines, err) -> {
-            for (String l : lines) if (seen.add(Collector.key(l))) out.add(l);
+            if (i > 0 && !lines.isEmpty()) out.add(NEXT_PICTURE);
+            for (String l : lines) {
+                String k = Collector.key(l);
+                if (k.isEmpty()) out.add(l);
+                else if (!readBefore(seen, k)) {
+                    seen.add(k);
+                    out.add(l);
+                }
+            }
             next(images, i + 1, out, seen, err != null ? err : error, done);
         });
     }
 
-    // Top to bottom by block, each block's lines in order.
-    static List<String> lines(Text t) {
-        List<Text.TextBlock> blocks = new ArrayList<>(t.getTextBlocks());
-        Collections.sort(blocks, (a, b) -> Integer.compare(top(a.getBoundingBox()), top(b.getBoundingBox())));
-        List<String> out = new ArrayList<>();
-        for (Text.TextBlock b : blocks) {
-            for (Text.Line l : b.getLines()) {
-                String s = l.getText().trim();
-                if (!s.isEmpty()) out.add(s);
-            }
-        }
-        return out;
+    private static boolean readBefore(Set<String> seen, String k) {
+        if (seen.contains(k)) return true;
+        if (k.length() < 12) return false;
+        for (String s : seen) if (s.contains(k)) return true;
+        return false;
     }
 
-    private static int top(Rect r) {
-        return r == null ? 0 : r.top;
+    // The lines put back into sentences and paragraphs (Layout); an empty
+    // line between paragraphs.
+    static List<String> lines(Text t) {
+        List<Layout.Line> all = new ArrayList<>();
+        for (Text.TextBlock b : t.getTextBlocks()) {
+            for (Text.Line l : b.getLines()) {
+                String s = l.getText().trim();
+                if (s.isEmpty()) continue;
+                Rect r = l.getBoundingBox();
+                if (r == null) r = b.getBoundingBox();
+                if (r == null) r = new Rect(0, 0, 0, 0);
+                all.add(new Layout.Line(s, r.left, r.top, r.right, r.bottom));
+            }
+        }
+        return Layout.paragraphs(all);
     }
 
     static String message(Exception e) {

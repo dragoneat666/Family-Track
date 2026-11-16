@@ -546,13 +546,19 @@ on-device text reader, through Play services); **only the text is used, and
 the pictures and screen are never saved or sent anywhere**.
 
 - **📷 From screenshots**: open the caption all the way (…more), take one or
-  two screenshots, and pick them (or share them to Family Track).
-- **🎬 Read it as it plays**: Family Track steps aside and reads the words
-  that show up on the video while it plays, start to finish. A red bubble
-  shows it's reading; tap it (or **Done** in the notification) when the
-  video is over and the recipe opens in the editor. Words that stay on screen
-  the whole time (often the name, or the account) are set aside in the notes.
-  For a recipe that's only said out loud, turn on the video's captions first.
+  two screenshots, and pick them (or share them to Family Track). The lines
+  are put back into sentences from where they sit on the screen, and the
+  app's own bits around the caption (the counts, the date, the next video)
+  are left out.
+- **🎬 Read it as it plays**: Family Track steps aside and a green bubble
+  waits while you find the video, so nothing on the way is read. Tap it (or
+  **Start** in the notification) and it reads the words that show up on the
+  video while it plays; the bubble turns red. Tap it again (or **Done**) when
+  the video is over and the recipe opens in the editor. Words that stay on
+  screen the whole time (often the name, or the account) are set aside in
+  the notes. For a recipe that's only said out loud, turn on the video's
+  captions first, or the phone's **Live Caption** (in the volume controls,
+  on phones that have it), which puts captions on any video.
   It needs Android 10 or newer, **Display over other apps** turned on for
   Family Track (asked the first time, for the bubble), and Android's
   "Start recording?" OK each time. It stops by itself after 10 minutes.

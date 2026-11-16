@@ -209,7 +209,10 @@ recipesRouter.get('/photo/:file', (req, res) => {
 recipesRouter.post('/', requireAdult, (req, res) => {
   // importKey: the video or page it was read from, so sharing that again
   // opens this one.
-  const key = parseUrl(req.body.importKey) ? importKey(parseUrl(req.body.importKey)) : null;
+  let key = parseUrl(req.body.importKey) ? importKey(parseUrl(req.body.importKey)) : null;
+  // (Already saved from there, say on another phone at the same time: this
+  // one's kept too, just not as the one sharing it opens.)
+  if (key && db.prepare('SELECT 1 FROM recipes WHERE imported_from = ?').get(key)) key = null;
   const id = insert(clean(req.body), req.account.id, key);
   res.json({ ok: true, id, ...everything() });
 });

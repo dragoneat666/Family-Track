@@ -7,11 +7,10 @@ import { isNative } from '../api.js';
 const Native = isNative ? registerPlugin('FamilyRead') : null;
 export const canReadScreen = !!Native;
 
-// The apps' own bits that end up in a screenshot: counts, times, buttons.
-const NOISE = /^(?:[\d.,]+\s*[kKmM]?|\d{1,2}:\d{2}(?::\d{2})?|\d+\s*[smhdw]|\d{1,3}\s*%|reply|replies|see translation|more|less|follow|following|like|likes|share|send|save|saved|comment|comments|remix|sponsored|suggested for you|search|home|reels|friends|inbox|profile|for you|explore|live|add comment.*|add a comment.*|liked by .*|view all .* comments|view replies.*|original audio.*|.*· original audio|see more|\.\.\.\s*more|…\s*more)$/i;
-export const cleanScreenText = (text) => text.split('\n').map((l) => l.trim()).filter((l) => l && !NOISE.test(l)).join('\n');
+export { cleanScreenText } from './screenText.js';
 
-// Screenshots picked in the app → their text ({ text, error }).
+// Screenshots picked in the app → their text ({ text, error }), as read
+// (cleanScreenText tidies it).
 export async function readScreenshots(files) {
   const images = await Promise.all([...files].slice(0, 10).map((f) => new Promise((done, fail) => {
     const r = new FileReader();
@@ -20,7 +19,7 @@ export async function readScreenshots(files) {
     r.readAsDataURL(f);
   })));
   const r = await Native.readImages({ images });
-  return { text: cleanScreenText(r.text || ''), error: r.error || null };
+  return { text: r.text || '', error: r.error || null };
 }
 
 // "Read a reel as it plays": { ok } or { ok: false, reason: 'overlay' |

@@ -419,7 +419,7 @@ function ImportSheet({ start, offline, onClose, onOpen, onDraft }) {
   // Text read off the screen (or screenshots): a recipe from it.
   function fromRead(text, how, steady = '', readError = null) {
     const link = takeLink() || ask?.sourceUrl || null;
-    const clean = cleanScreenText(text || '');
+    const clean = cleanScreenText(text || '', { shots: how === 'screenshots' });
     if (!clean.trim()) {
       setError(readError || (how === 'screen'
         ? "Didn't catch any text on screen. Try again with the video playing (turn on its captions if the recipe is only said out loud)."
@@ -455,7 +455,7 @@ function ImportSheet({ start, offline, onClose, onOpen, onDraft }) {
     setWatchNote('');
     rememberLink(ask?.sourceUrl || null);
     const r = await watchReel().catch(() => ({ ok: false, reason: 'failed' }));
-    if (r.ok) setWatchNote('Play the video from the start. When it\'s over, tap the red bubble, and the recipe opens here.');
+    if (r.ok) setWatchNote('Go to the video, tap the green bubble, and play it from the start. When it\'s over, tap the red bubble, and the recipe opens here.');
     else setError(WATCH_WHY[r.reason] || WATCH_WHY.failed);
   }
 
@@ -467,8 +467,9 @@ function ImportSheet({ start, offline, onClose, onOpen, onDraft }) {
         <input ref={pick} type="file" accept="image/*" multiple hidden onChange={screenshots} />
       </div>
       <p className="muted small">
-        <b>Screenshots</b>: open the caption all the way (…more) and take one or two. <b>As it plays</b>: Family Track reads the words that
-        show up on the video while you watch it; turn on the video's captions to catch what's said out loud too.
+        <b>Screenshots</b>: open the caption all the way (…more) and take one or two. <b>As it plays</b>: go to the video and tap the green
+        bubble to start; Family Track reads the words that show up on the video while you watch it, until you tap the bubble again.
+        For what's only said out loud, turn on the video's captions, or the phone's Live Caption.
       </p>
       {watchNote && <p className="sync-note">{watchNote}</p>}
     </div>
