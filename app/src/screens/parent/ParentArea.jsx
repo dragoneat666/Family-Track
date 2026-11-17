@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api.js';
 import OverviewTab from './OverviewTab.jsx';
 import CharactersTab from './CharactersTab.jsx';
+import BackgroundsTab from './BackgroundsTab.jsx';
 import BrushingTab from './BrushingTab.jsx';
 import TestTab from './TestTab.jsx';
 import ExercisesTab from './ExercisesTab.jsx';
@@ -33,11 +34,12 @@ const SCREENS = {
   recipes: { emoji: '🍽️', title: 'Meals', under: 'home' },
   kids: { emoji: '🧒', title: 'Kids Setup', under: 'home' },
   characters: { emoji: '🤖', title: 'Characters', under: 'kids', note: 'What the kids build and dress up' },
+  backgrounds: { emoji: '🖼️', title: 'Backgrounds', under: 'kids', note: 'Picture puzzles, in groups' },
   brushing: { emoji: '🪥', title: 'Brushing', under: 'kids', note: 'Rules, history and each kid’s setting' },
   exercises: { emoji: '🏃', title: 'Exercises', under: 'kids', note: 'Do an exercise with a kid' },
   test: { emoji: '🧪', title: 'Test', under: 'kids', note: 'Try brushing and building without saving' }
 };
-const UNDER_KIDS = ['characters', 'brushing', 'exercises', 'test'];
+const UNDER_KIDS = ['characters', 'backgrounds', 'brushing', 'exercises', 'test'];
 
 // Home for grown-up accounts, in the app and the web app alike.
 export default function FamilyArea({ account, onSettings, onAuthLost }) {
@@ -118,6 +120,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
           </div>
         )}
         {screen === 'characters' && <CharactersTab onAuthLost={onAuthLost} />}
+        {screen === 'backgrounds' && <BackgroundsTab onAuthLost={onAuthLost} />}
         {screen === 'brushing' && <BrushingTab onAuthLost={onAuthLost} />}
         {screen === 'exercises' && <ExercisesTab onAuthLost={onAuthLost} show={setFullScreen} />}
         {screen === 'test' && <TestTab onAuthLost={onAuthLost} show={setFullScreen} />}

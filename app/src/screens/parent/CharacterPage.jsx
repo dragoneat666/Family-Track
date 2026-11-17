@@ -4,24 +4,11 @@ import { DanceViewer } from '../../three/danceViewer.js';
 import { PartnerScene } from '../../three/partnerScene.js';
 import { glbOnly, danceFiles, brushNumbers, KIND_EMOJI, clock } from './characterFiles.js';
 import VoiceEditor from './VoiceEditor.jsx';
-import SceneThumb from '../../scenes/SceneThumb.jsx';
-import { groupsOf } from './CharactersTab.jsx';
 import ExerciseEditor from './ExerciseEditor.jsx';
 
 // One character's own page: everything about it, one section at a time.
 export default function CharacterPage({ character, all, call, upload, setError, reload, onBack }) {
   const partnerOnly = character.kind === 'partner';
-  if (character.kind === 'scene') {
-    return (
-      <div className="stack character-page">
-        <div className="row wrap">
-          <button data-back className="btn" onClick={onBack}>← All characters</button>
-          <h2 className="grow">🖼️ {character.name}</h2>
-        </div>
-        <SceneDetails character={character} all={all} call={call} upload={upload} setError={setError} reload={reload} onDeleted={onBack} />
-      </div>
-    );
-  }
   const sections = [
     ['details', 'Details'],
     ...(partnerOnly ? [] : [['build', 'Build']]),
@@ -54,62 +41,6 @@ export default function CharacterPage({ character, all, call, upload, setError, 
         </div>
       )}
       {section === 'exercises' && <ExerciseList {...props} />}
-    </div>
-  );
-}
-
-// A background: its picture (as the kids get it, cut into pieces), name,
-// group, a new picture, or deleting it.
-function SceneDetails({ character, all, call, upload, setError, reload, onDeleted }) {
-  const [name, setName] = useState(character.name);
-  const [group, setGroup] = useState(character.group || '');
-  const picture = useRef(null);
-  const groups = groupsOf(all);
-
-  async function save() {
-    if (await call(() => api.put(`/api/parent/characters/${character.id}`, { name, group }))) reload();
-  }
-
-  async function newPicture() {
-    const pic = picture.current?.files?.[0];
-    if (!pic) return setError('Pick a picture first');
-    const form = new FormData();
-    form.append('picture', pic, pic.name);
-    if (await upload('POST', `/api/parent/characters/${character.id}/picture`, form)) picture.current.value = '';
-  }
-
-  async function remove() {
-    if (!window.confirm(`Delete the ${character.name} background? Every kid's pieces of it are deleted too.`)) return;
-    if (await call(() => api.del(`/api/parent/characters/${character.id}`))) {
-      await reload();
-      onDeleted();
-    }
-  }
-
-  return (
-    <div className="card stack">
-      {character.status === 'processing' && <p className="muted">Getting the picture ready…</p>}
-      {character.status === 'ready' && (
-        <div className="scene-preview">
-          <SceneThumb character={{ ...character, pieces: [] }} />
-        </div>
-      )}
-      {character.error && <p className="error">{character.error}</p>}
-      <label>Name
-        <input value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <label>Group
-        <input list="bg-groups-edit" value={group} onChange={(e) => setGroup(e.target.value)} placeholder="e.g. Transformers" />
-        <datalist id="bg-groups-edit">{groups.map((g) => <option key={g} value={g} />)}</datalist>
-      </label>
-      <div className="row"><button className="btn primary" onClick={save} disabled={name === character.name && group === (character.group || '')}>Save</button></div>
-      <h4>Picture</h4>
-      <p className="muted small">Cut into 9 jigsaw pieces, one per brush. A new picture keeps everyone's progress (same pieces, new picture).</p>
-      <div className="row wrap">
-        <input type="file" accept="image/*" ref={picture} />
-        <button className="btn" onClick={newPicture}>Use this picture</button>
-      </div>
-      <div className="row"><button className="btn danger" onClick={remove}>Delete {character.name}</button></div>
     </div>
   );
 }

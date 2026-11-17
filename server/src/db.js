@@ -501,6 +501,21 @@ const MIGRATIONS = [
   `
   ALTER TABLE characters ADD COLUMN grp TEXT;
   ALTER TABLE profiles ADD COLUMN background_id INTEGER REFERENCES characters(id) ON DELETE SET NULL;
+  `,
+  // Background groups are their own things (made, renamed and emptied on the
+  // Backgrounds screen) instead of a name typed on each background. The
+  // names typed so far become groups.
+  `
+  CREATE TABLE scene_groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  ALTER TABLE characters ADD COLUMN group_id INTEGER REFERENCES scene_groups(id) ON DELETE SET NULL;
+  INSERT OR IGNORE INTO scene_groups (name)
+    SELECT grp FROM characters WHERE kind = 'scene' AND grp IS NOT NULL AND grp <> '' ORDER BY id;
+  UPDATE characters SET group_id = (SELECT g.id FROM scene_groups g WHERE g.name = characters.grp)
+    WHERE kind = 'scene' AND grp IS NOT NULL AND grp <> '';
   `
 ];
 

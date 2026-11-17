@@ -227,7 +227,7 @@ function kidBackground(row) {
   if (!row.background_id) return null;
   const c = db.prepare("SELECT * FROM characters WHERE id = ? AND kind = 'scene' AND status = 'ready'").get(row.background_id);
   if (!c || !sceneDone(row.id, c.id)) return null;
-  return { id: c.id, name: c.name, group: c.grp || '', version: c.version };
+  return { id: c.id, name: c.name, group: groupName(c.group_id), version: c.version };
 }
 
 // One kid's progress on one (ready) character: their pieces, dances, and
@@ -244,7 +244,7 @@ function kidCharacter(profileId, c, isTest = !!profileRow(profileId).is_test) {
   const settings = getSettings();
   const waitUntil = nextPiece && !isTest ? nextPieceAt(profileId, c, settings) : null;
   return {
-    id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version, group: c.grp || '',
+    id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version, group: groupName(c.group_id),
     hasRigged: !!c.has_rigged,
     pieces: pieces.map((p) => ({
       id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt,
@@ -780,7 +780,7 @@ function characterDetail(c) {
   const ex = c.exercise ? safeJson(c.exercise) : null;
   return {
     id: c.id, name: c.name, kind: c.kind, status: c.status, error: c.error, hasRigged: !!c.has_rigged, version: c.version,
-    group: c.grp || '',
+    group: groupName(c.group_id), groupId: c.group_id ?? null,
     pieces: db.prepare('SELECT id, name, node_name AS nodeName, reveal FROM pieces WHERE character_id = ? ORDER BY sort, id').all(c.id)
       .map((p) => ({ ...p, reveal: !!p.reveal })),
     dances: db.prepare('SELECT id, name, status, error FROM dances WHERE character_id = ? ORDER BY id').all(c.id),
@@ -809,7 +809,65 @@ const characterUpload = upload.fields([
   { name: 'picture', maxCount: 1 }
 ]);
 const KINDS = ['build', 'dress', 'partner', 'scene'];
+
+// Background groups ("Transformers"): made on the Backgrounds screen, each
+// background in one (or none). Kids pick backgrounds by group.
 const cleanGroup = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+function groupName(id) {
+  return (id && db.prepare('SELECT name FROM scene_groups WHERE id = ?').get(id)?.name) || '';
+}
+// The group a background goes in, from groupId (or a group name, as app
+// builds before the Backgrounds screen send; a new name makes the group).
+// undefined: not given, leave it as it is.
+function groupFrom(b) {
+  if ('groupId' in b) {
+    if (b.groupId === null || b.groupId === '' || b.groupId === 'null') return null;
+    const g = db.prepare('SELECT id FROM scene_groups WHERE id = ?').get(Number(b.groupId));
+    if (!g) throw httpError(400, 'That group is gone. Pick another.');
+    return g.id;
+  }
+  if ('group' in b) {
+    const name = cleanGroup(b.group);
+    if (!name) return null;
+    const had = db.prepare('SELECT id FROM scene_groups WHERE name = ?').get(name);
+    return had ? had.id : Number(db.prepare('INSERT INTO scene_groups (name) VALUES (?)').run(name).lastInsertRowid);
+  }
+  return undefined;
+}
+const groupRows = () => db.prepare(`
+  SELECT g.id, g.name, (SELECT COUNT(*) FROM characters c WHERE c.group_id = g.id) AS backgrounds
+  FROM scene_groups g ORDER BY g.name COLLATE NOCASE`).all();
+
+parent.get('/scene-groups', (req, res) => res.json(groupRows()));
+
+parent.post('/scene-groups', (req, res) => {
+  const name = cleanGroup(req.body?.name);
+  if (!name) throw httpError(400, 'Give the group a name');
+  if (db.prepare('SELECT 1 FROM scene_groups WHERE name = ?').get(name)) throw httpError(409, `There's already a group called ${name}`);
+  const id = Number(db.prepare('INSERT INTO scene_groups (name) VALUES (?)').run(name).lastInsertRowid);
+  res.status(201).json(groupRows().find((g) => g.id === id));
+});
+
+parent.put('/scene-groups/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM scene_groups WHERE id = ?').get(id)) throw httpError(404, 'No such group');
+  const name = cleanGroup(req.body?.name);
+  if (!name) throw httpError(400, 'Give the group a name');
+  if (db.prepare('SELECT 1 FROM scene_groups WHERE name = ? AND id <> ?').get(name, id)) throw httpError(409, `There's already a group called ${name}`);
+  db.prepare('UPDATE scene_groups SET name = ? WHERE id = ?').run(name, id);
+  res.json(groupRows().find((g) => g.id === id));
+});
+
+// Deleting a group keeps its backgrounds (and the kids' progress on them):
+// they just have no group.
+parent.delete('/scene-groups/:id', (req, res) => {
+  const id = Number(req.params.id);
+  db.transaction(() => {
+    db.prepare('UPDATE characters SET group_id = NULL WHERE group_id = ?').run(id);
+    db.prepare('DELETE FROM scene_groups WHERE id = ?').run(id);
+  })();
+  res.json({ ok: true });
+});
 
 // A background: the picture, made a sensible size for the tablets (turned
 // the right way up), kept as scene.jpg. It's cut into SCENE_PIECES jigsaw
@@ -839,6 +897,7 @@ async function savePicture(characterId, file) {
       db.prepare("UPDATE characters SET status = 'ready', error = NULL, version = ? WHERE id = ?").run(newVersion(), characterId);
     })();
   } catch (e) {
+    if (!db.prepare('SELECT 1 FROM characters WHERE id = ?').get(characterId)) return; // deleted while it got ready
     console.error('background picture', characterId, e);
     db.prepare("UPDATE characters SET status = 'error', error = ? WHERE id = ?").run("That picture couldn't be read. Try a JPG or PNG.", characterId);
   } finally {
@@ -854,8 +913,10 @@ parent.post('/characters', characterUpload, (req, res) => {
   if (kind === 'partner' && !files.exercise?.[0]) { cleanup(req); throw httpError(400, 'Add the exercise model (.glb)'); }
   if (kind === 'scene') {
     if (!files.picture?.[0]) { cleanup(req); throw httpError(400, 'Add the picture (JPG or PNG)'); }
-    const id = db.prepare("INSERT INTO characters (name, kind, status, grp) VALUES (?, 'scene', 'processing', ?)")
-      .run(String(req.body.name).trim().slice(0, 60), cleanGroup(req.body.group) || null).lastInsertRowid;
+    let groupId;
+    try { groupId = groupFrom(req.body) ?? null; } catch (e) { cleanup(req); throw e; }
+    const id = db.prepare("INSERT INTO characters (name, kind, status, group_id) VALUES (?, 'scene', 'processing', ?)")
+      .run(String(req.body.name).trim().slice(0, 60), groupId).lastInsertRowid;
     cleanupFiles([...pieces, ...(files.rigged || []), ...(files.dances || []), ...(files.exercise || [])]);
     enqueue([() => savePicture(id, files.picture[0])]);
     return res.status(202).json(characterDetail(characterRow(id)));
@@ -883,8 +944,9 @@ parent.put('/characters/:id', (req, res) => {
   db.transaction(() => {
     // A partner-only character stays one (it has no pieces to build).
     const kind = c.kind !== 'partner' && c.kind !== 'scene' && (b.kind === 'dress' || b.kind === 'build') ? b.kind : c.kind;
-    db.prepare('UPDATE characters SET name = ?, kind = ?, grp = ? WHERE id = ?').run(
-      String(b.name ?? c.name).trim().slice(0, 60) || c.name, kind, 'group' in b ? cleanGroup(b.group) || null : c.grp, c.id);
+    const groupId = c.kind === 'scene' ? groupFrom(b) : undefined;
+    db.prepare('UPDATE characters SET name = ?, kind = ?, group_id = ? WHERE id = ?').run(
+      String(b.name ?? c.name).trim().slice(0, 60) || c.name, kind, groupId === undefined ? c.group_id ?? null : groupId, c.id);
     // pieces: full list in the new unlock order, with names and which are
     // body parts (dress up reveals those instead of placing them)
     (b.pieces || []).forEach((p, i) => {

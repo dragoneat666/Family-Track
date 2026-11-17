@@ -215,11 +215,13 @@ character in Settings → Accounts.
 
 ### Backgrounds (picture puzzles)
 
-A background is a picture the kids put together as a jigsaw. Add it in Kids
-Setup → Characters → Add a character → **Background**: a name, a **group**
-(like "Transformers"; kids see backgrounds by group) and the picture (JPG or
-PNG, wide works best; the server makes it 1920 px and turns it the right way
-up). The app cuts it into 9 jigsaw pieces (3 × 3). The shapes come from the
+A background is a picture the kids put together as a jigsaw. They live in
+Kids Setup → **Backgrounds**, in groups: make a group (like "Transformers";
+kids see backgrounds by group), then **Add a background** in it with a name
+and the picture (JPG or PNG, wide works best; the server makes it 1920 px and
+turns it the right way up). A background's page moves it to another group (or
+none), gives it a new picture or deletes it. Renaming a group renames it for
+the kids too; deleting a group keeps its backgrounds, in no group. The app cuts it into 9 jigsaw pieces (3 × 3). The shapes come from the
 background's id, so they're the same every time and on every tablet.
 
 Kids pick one on their Characters screen (**Work on this one**), and then
