@@ -5,16 +5,18 @@ import { PartnerScene } from '../../three/partnerScene.js';
 import { glbOnly, danceFiles, brushNumbers, KIND_EMOJI, clock } from './characterFiles.js';
 import VoiceEditor from './VoiceEditor.jsx';
 import ExerciseEditor from './ExerciseEditor.jsx';
+import CharacterTest from './CharacterTest.jsx';
 
 // One character's own page: everything about it, one section at a time.
-export default function CharacterPage({ character, all, call, upload, setError, reload, onBack }) {
+export default function CharacterPage({ character, all, call, upload, setError, reload, onBack, show }) {
   const partnerOnly = character.kind === 'partner';
   const sections = [
     ['details', 'Details'],
     ...(partnerOnly ? [] : [['build', 'Build']]),
     ['model', 'Exercise model'],
     ['voice', 'Voice'],
-    ['exercises', `Exercises (${character.exercises.length})`]
+    ['exercises', `Exercises (${character.exercises.length})`],
+    ['test', '🧪 Test']
   ];
   const [section, setSection] = useState(partnerOnly ? 'exercises' : 'details');
   const props = { character, all, call, upload, setError, reload };
@@ -41,6 +43,7 @@ export default function CharacterPage({ character, all, call, upload, setError, 
         </div>
       )}
       {section === 'exercises' && <ExerciseList {...props} />}
+      {section === 'test' && <CharacterTest character={character} show={show} />}
     </div>
   );
 }

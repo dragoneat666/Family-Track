@@ -7,9 +7,12 @@ import { scenePicture } from '../scenes/picture.js';
 
 // Either a kid's real build (profile: their active character, or
 // characterId from the Characters screen) or a parent test run (testCharacter:
-// every piece unlocked, nothing saved; level picks easy/medium/hard). A
-// background (kind 'scene') is a jigsaw instead of a 3D build.
-export default function Build({ profile, characterId, testCharacter, level: testLevel = 'easy', onExit }) {
+// every piece unlocked, nothing saved; level picks easy/medium/hard; finished
+// starts it put together; testBackground is behind it when finished, and
+// testBackgrounds are the ones to switch between). A background (kind
+// 'scene') is a jigsaw instead of a 3D build.
+export default function Build({ profile, characterId, testCharacter, finished = false, testBackground = null, testBackgrounds,
+  level: testLevel = 'easy', onExit }) {
   const [loaded, setLoaded] = useState(null); // { c, lvl, background }
   const [error, setError] = useState('');
 
@@ -21,7 +24,8 @@ export default function Build({ profile, characterId, testCharacter, level: test
         let lvl = testLevel;
         let background = null;
         if (testCharacter) {
-          c = { ...testCharacter, pieces: testCharacter.pieces.map((p) => ({ ...p, unlocked: true, placed: false })) };
+          c = { ...testCharacter, pieces: testCharacter.pieces.map((p) => ({ ...p, unlocked: true, placed: !!finished })) };
+          background = testBackground;
         } else if (characterId) {
           // Any character the kid picked on the Characters screen.
           const r = await api.get(`/api/kids/${profile.id}/characters/${characterId}`);
@@ -46,7 +50,7 @@ export default function Build({ profile, characterId, testCharacter, level: test
   if (loaded?.c.kind === 'scene') {
     return <SceneBuild profile={profile} test={!!testCharacter} start={loaded.c} level={loaded.lvl} background={loaded.background} onExit={onExit} />;
   }
-  if (loaded) return <Build3D profile={profile} testCharacter={testCharacter} loaded={loaded} onExit={onExit} />;
+  if (loaded) return <Build3D profile={profile} testCharacter={testCharacter} testBackgrounds={testBackgrounds} loaded={loaded} onExit={onExit} />;
   return (
     <div className="build-screen">
       <header className="build-header">
@@ -95,7 +99,7 @@ function SceneBuild({ profile, test, start, level, background, onExit }) {
   );
 }
 
-function Build3D({ profile, testCharacter, loaded, onExit }) {
+function Build3D({ profile, testCharacter, testBackgrounds, loaded, onExit }) {
   const holderRef = useRef(null);
   const sceneRef = useRef(null);
   const sayTimer = useRef(null);
@@ -191,11 +195,15 @@ function Build3D({ profile, testCharacter, loaded, onExit }) {
     }
   }
 
-  async function dance() {
+  // A kid gets a dance at random (a different one each tap).
+  function dance() {
     const list = character.dances || [];
     if (!list.length) return;
     const pool = list.length > 1 ? list.filter((d) => d.id !== dancing?.id) : list;
-    const pick = pool[Math.floor(Math.random() * pool.length)];
+    playDance(pool[Math.floor(Math.random() * pool.length)]);
+  }
+
+  async function playDance(pick) {
     setDancing({ ...pick, loading: true });
     try {
       await sceneRef.current.dance(
@@ -264,10 +272,21 @@ function Build3D({ profile, testCharacter, loaded, onExit }) {
             {level === 'hard' && <button className="btn big turn" onClick={() => sceneRef.current?.turn(-1)} disabled={!turnable} aria-label="Turn right">⟳</button>}
           </div>
         )}
-        {complete && !testCharacter && (
+        {complete && (!testCharacter || testBackgrounds) && (
           <button className="btn big" onClick={() => setPicking(true)} title="Background">🖼️</button>
         )}
-        {canDance && (
+        {/* Testing: any dance by name. */}
+        {canDance && testCharacter && (
+          <div className="dance-buttons">
+            <select className="dance-pick" value={dancing?.id ?? ''} disabled={dancing?.loading}
+              onChange={(e) => { const d = character.dances.find((x) => String(x.id) === e.target.value); if (d) playDance(d); else stopDance(); }}>
+              <option value="">💃 Pick a dance…</option>
+              {character.dances.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            {dancing && <button className="btn" onClick={stopDance}>Stand still</button>}
+          </div>
+        )}
+        {canDance && !testCharacter && (
           <div className="dance-buttons">
             <button className="btn primary big" onClick={dance} disabled={dancing?.loading}>
               {dancing ? '💃 Another dance' : '💃 Dance!'}
@@ -277,7 +296,7 @@ function Build3D({ profile, testCharacter, loaded, onExit }) {
         )}
       </footer>
       {picking && (
-        <BackgroundPicker profile={profile} current={background} onClose={() => setPicking(false)}
+        <BackgroundPicker profile={profile} choices={testCharacter ? testBackgrounds : undefined} current={background} onClose={() => setPicking(false)}
           onPicked={(b) => { setBackground(b); setPicking(false); }} />
       )}
     </div>

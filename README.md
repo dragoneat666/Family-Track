@@ -256,6 +256,12 @@ Characters shows every character as a tile; tapping one opens its page:
   named like `Starfish_Sit_Up.L` / `.R` and `Starfish_Sit_Up_Rev.L` / `.R`, or
   copy one from another character (same animation names, its words come along
   to record again).
+- **Test**: try this one character without touching any kid's progress.
+  **See it finished** shows it put together in front of any background, with
+  every dance in a list to play by name; **Test building** puts it together
+  from scratch at any puzzle level; **Test exercises** runs its exercises as a
+  kid gets them (hold time and rounds changed there aren't saved). The 🖼️
+  button swaps the background while it's showing, mid-dance too.
 
 ### The exercise editor
 

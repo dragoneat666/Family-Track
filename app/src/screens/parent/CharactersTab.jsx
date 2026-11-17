@@ -7,7 +7,7 @@ import { glbOnly, KIND_EMOJI } from './characterFiles.js';
 // All the characters as tiles, plus adding one. Tapping a character opens its
 // own page (building, exercise model, voice, exercises). The server shrinks
 // the 3D files for the tablets, so the big originals are fine to upload.
-export default function CharactersTab({ onAuthLost }) {
+export default function CharactersTab({ onAuthLost, show }) {
   const { error, setError, call } = useParentCall(onAuthLost);
   const [list, setList] = useState(null);
   const [openId, setOpenId] = useState(null);
@@ -54,7 +54,7 @@ export default function CharactersTab({ onAuthLost }) {
         {error && <p className="error">{error}</p>}
         {uploading}
         <CharacterPage key={open.id} character={open} all={list} call={call} upload={upload} setError={setError}
-          reload={load} onBack={() => setOpenId(null)} />
+          reload={load} onBack={() => setOpenId(null)} show={show} />
       </div>
     );
   }

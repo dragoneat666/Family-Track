@@ -4,19 +4,25 @@ import { Sheet } from '../lists/ui.jsx';
 import SceneThumb from './SceneThumb.jsx';
 
 // Picking the background a kid's characters stand in front of: the ones
-// they've finished, by group ("Transformers", …), or none.
-export default function BackgroundPicker({ profile, current, onPicked, onClose }) {
-  const [done, setDone] = useState(null);
+// they've finished, by group ("Transformers", …), or none. choices: a grown-up
+// testing picks from these instead, and nothing is saved.
+export default function BackgroundPicker({ profile, choices, current, onPicked, onClose }) {
+  const [done, setDone] = useState(choices || null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (choices) return;
     api.get(`/api/kids/${profile.id}/characters`)
       .then((r) => setDone(r.characters.filter((c) => c.kind === 'scene' && c.complete)))
       .catch((e) => setError(e.message));
-  }, [profile.id]);
+  }, [profile?.id]);
 
   async function pick(id) {
+    if (choices) {
+      onPicked(id == null ? null : choices.find((c) => c.id === id));
+      return;
+    }
     setSaving(true);
     try {
       const r = await api.put(`/api/kids/${profile.id}/background`, { characterId: id });
@@ -32,7 +38,8 @@ export default function BackgroundPicker({ profile, current, onPicked, onClose }
     <Sheet title="🖼️ Pick a background" onClose={onClose} closeLabel="Close" wide>
       {error && <p className="error">{error}</p>}
       {!done && !error && <div className="spinner" />}
-      {done && !done.length && <p className="muted">Finish a background puzzle first! Pick one on the Characters screen.</p>}
+      {done && !done.length && <p className="muted">{choices ? 'No backgrounds yet. Add them under Kids Setup → Backgrounds.'
+        : 'Finish a background puzzle first! Pick one on the Characters screen.'}</p>}
       {groups.map(([name, list]) => (
         <div key={name} className="stack tight">
           {groups.length > 1 && <h3 className="bg-group">{name}</h3>}

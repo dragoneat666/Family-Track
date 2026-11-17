@@ -80,7 +80,9 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
     }
   }), []);
 
-  if (fullScreen) return fullScreen;
+  // From Home, a full screen just replaces it. From a section, the section
+  // stays underneath (hidden), so Back lands where you were.
+  if (fullScreen && screen === 'home') return fullScreen;
 
   const tile = (key) => {
     const s = SCREENS[key];
@@ -102,7 +104,9 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
 
   const s = SCREENS[screen];
   return (
-    <div className="parent-area">
+    <>
+    {fullScreen}
+    <div className="parent-area" style={fullScreen ? { display: 'none' } : undefined}>
       <UpdateBanner />
       <header className="parent-header sub">
         <button data-back className="btn" onClick={() => setScreen(s.under)}>← {s.under === 'home' ? 'Home' : SCREENS[s.under].title}</button>
@@ -119,13 +123,14 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
             <div className="home-grid small">{UNDER_KIDS.map(tile)}</div>
           </div>
         )}
-        {screen === 'characters' && <CharactersTab onAuthLost={onAuthLost} />}
+        {screen === 'characters' && <CharactersTab onAuthLost={onAuthLost} show={setFullScreen} />}
         {screen === 'backgrounds' && <BackgroundsTab onAuthLost={onAuthLost} />}
         {screen === 'brushing' && <BrushingTab onAuthLost={onAuthLost} />}
         {screen === 'exercises' && <ExercisesTab onAuthLost={onAuthLost} show={setFullScreen} />}
         {screen === 'test' && <TestTab onAuthLost={onAuthLost} show={setFullScreen} />}
       </main>
     </div>
+    </>
   );
 }
 
