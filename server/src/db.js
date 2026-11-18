@@ -550,6 +550,24 @@ const MIGRATIONS = [
   );
   CREATE INDEX money_profile ON money(profile_id);
   CREATE INDEX money_done ON money(done_id);
+  `,
+  // Chores can come round on set days (JSON [0-6], Sunday = 0; null = any
+  // day), have the kids who usually do them (JSON ids), and be linked to a
+  // reminder. chore_asks: a linked reminder was marked Done, so that
+  // grown-up's app asks whether to check the chore off too.
+  `
+  ALTER TABLE chores ADD COLUMN days TEXT;
+  ALTER TABLE chores ADD COLUMN kids TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE chores ADD COLUMN reminder_id INTEGER REFERENCES reminders(id) ON DELETE SET NULL;
+  CREATE TABLE chore_asks (
+    id INTEGER PRIMARY KEY,
+    chore_id INTEGER NOT NULL REFERENCES chores(id) ON DELETE CASCADE,
+    reminder_id INTEGER,
+    occ TEXT NOT NULL,
+    account_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (chore_id, occ)
+  );
   `
 ];
 

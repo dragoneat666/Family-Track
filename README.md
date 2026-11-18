@@ -624,24 +624,38 @@ speech for its language yet, it asks the phone to download it.
 
 ## Chores and allowance
 
-Grown-ups make the chores on the **Chores** button: a name, how many times a
-week it can be done ("Dishes", 3 times) and what it earns each time ($1
-unless you change it). Tap a chore's name to change or delete it. A new
-amount counts from then on; deleting a chore keeps the money it earned.
+Grown-ups make the chores on the **Chores** button: a name, how often, what it
+earns each time ($1 unless you change it), and (if you like) who usually
+does it and a linked reminder. How often is either **times a week** (any
+day: "Dishes", 3 times) or **on set days** that come round every week
+("Trash" on Wednesday and Saturday, once each day; it shows **Today** when
+it's due). Tap a chore's name to change or delete it. A new amount counts
+from then on; deleting a chore keeps the money it earned.
 
-**✓ Done** checks a chore off: tick every kid who did it. Each one ticked
-earns the full amount (two kids on the dishes = $1 each), and it counts once
-towards the week's times. Once it's been done its times for the week, it
-waits until next week. Weeks start on Sunday. **Done this week** lists the
-check-offs, with **Undo** (which takes the money back).
+**✓ Done** checks a chore off: tick every kid who did it (the ones who
+usually do it start ticked). Each one ticked earns the full amount (two kids
+on the dishes = $1 each), and it counts once towards the week's times. Once
+it's been done its times for the week, it waits until next week. Weeks start
+on Sunday. **Done this week** lists the check-offs, with **Undo** (which
+takes the money back).
 
-Each kid's money is a running total. **Take out** subtracts what they spend
-(with an optional note, like "Lego set"), and **History** shows what each
-chore earned and what was taken out (taking out can be undone there).
+**Linked reminders.** Link a chore to a reminder (say "Trash night") and
+marking that reminder Done (on the Reminders screen, on My Day, or with the
+Done button on the phone's notification) asks whether to check the chore off
+too, with the usual kids ticked. After a notification's Done, the question
+is waiting the next time the app is opened. A kid marking it Done asks the
+grown-ups instead. Linking a reminder to a chore with no days yet gives the
+chore the reminder's days.
+
+Each kid's money is a running total. **Add** puts money in (birthday money),
+**Take out** subtracts what they spend (each with an optional note), and
+**History** shows what each chore earned and what was added or taken out
+(adding and taking out can be undone there).
 
 Kids have a **Chores** button on their home screen: their money, what they
-earned this week, this week's chores with how many times are left, and their
-history. They only see their own money, and only grown-ups check chores off.
+earned from chores this week, this week's chores (which are theirs, which are
+due today, how many times are left), and their history. They only see their
+own money, and only grown-ups check chores off.
 
 ## Developing
 

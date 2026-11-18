@@ -4,6 +4,7 @@ import OverviewTab from './OverviewTab.jsx';
 import CharactersTab from './CharactersTab.jsx';
 import BackgroundsTab from './BackgroundsTab.jsx';
 import ChoresScreen from '../../chores/ChoresScreen.jsx';
+import ChoreAsks from '../../chores/ChoreAsks.jsx';
 import BrushingTab from './BrushingTab.jsx';
 import TestTab from './TestTab.jsx';
 import ExercisesTab from './ExercisesTab.jsx';
@@ -43,8 +44,18 @@ const SCREENS = {
 };
 const UNDER_KIDS = ['characters', 'backgrounds', 'brushing', 'exercises', 'test'];
 
-// Home for grown-up accounts, in the app and the web app alike.
-export default function FamilyArea({ account, onSettings, onAuthLost }) {
+// Home for grown-up accounts, in the app and the web app alike. Over any
+// screen: the "check the chore off too?" question after a linked reminder.
+export default function FamilyArea(props) {
+  return (
+    <>
+      <FamilyScreens {...props} />
+      <ChoreAsks />
+    </>
+  );
+}
+
+function FamilyScreens({ account, onSettings, onAuthLost }) {
   const [screen, setScreen] = useState('home');
   const [fullScreen, setFullScreen] = useState(null); // an open list, or a test brush/build, takes over the screen
 

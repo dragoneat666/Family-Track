@@ -1,6 +1,7 @@
 import express from 'express';
 import { db } from './db.js';
 import { httpError, requireAdult } from './auth.js';
+import { reminderDone, reminderUndone } from './chores.js';
 
 // Reminders at set times, like pills in the morning and evening. Grown-ups
 // make them; they go to whoever they're for as a phone notification with a
@@ -267,6 +268,9 @@ remindersRouter.post('/done', (req, res) => {
     db.prepare('INSERT OR IGNORE INTO reminder_done (reminder_id, occ, profile_id, done_by, done_at) VALUES (?, ?, ?, ?, ?)')
       .run(r.id, occ, profile, req.account.id, Date.now());
   }
+  // A chore linked to it: ask about checking that off too (or not, now).
+  if (req.body.undo) reminderUndone(r.id, occ);
+  else reminderDone(r.id, occ, req.account);
   db.prepare('DELETE FROM reminder_done WHERE done_at < ?').run(Date.now() - KEEP_DONE);
   res.json({ ok: true });
 });

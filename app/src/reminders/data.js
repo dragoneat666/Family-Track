@@ -79,6 +79,8 @@ export async function deleteReminder(id) {
 // Done (or undone) for one time today. forId: whose, when everyone taps their own.
 export async function markDone(reminder, occ, { forId = null, undo = false } = {}) {
   await api.post('/api/reminders/done', { id: reminder, occ, for: forId, undo });
+  // A chore linked to it: ask about checking that off too.
+  if (!undo) window.dispatchEvent(new Event('ft:chore-asks'));
   afterChange(await api.get('/api/reminders'));
 }
 

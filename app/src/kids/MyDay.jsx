@@ -115,6 +115,7 @@ function ReminderRow({ r, onDone }) {
     setBusy(true);
     try {
       await api.post('/api/reminders/done', { id: r.id, occ: r.occ });
+      window.dispatchEvent(new Event('ft:chore-asks'));
       await onDone();
     } catch { /* try again */ }
     setBusy(false);

@@ -1037,6 +1037,11 @@ input.line-text { font: inherit; padding: 4px 8px; }
 .kid-chore-name { font-size: 1.3rem; font-weight: 800; }
 .kid-chore-pay { font-size: 1.3rem; font-weight: 800; color: var(--good, #2e9d57); }
 .kid-chore-left { grid-column: 1 / -1; font-weight: 600; color: var(--muted); }
+.chore-today { display: inline-block; margin: 0 6px; padding: 1px 8px; border-radius: 999px; background: #f59e0b; color: #fff; font-size: 0.75rem; font-weight: 800; vertical-align: middle; }
+.chore-mine { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: var(--c, var(--brand)); color: #fff; font-size: 0.8rem; font-weight: 800; }
+.chore-row.due { border-left: 5px solid #f59e0b; }
+.kid-chore.due { border-color: #f59e0b; }
+.kid-chore-left .chore-today { margin-left: 0; }
 .kid-money-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .kid-money-list li { display: grid; grid-template-columns: 6.5em 1fr auto; gap: 10px; align-items: baseline; padding: 10px 14px; border-radius: 14px; background: var(--card); font-size: 1.1rem; }
 .dance-pick { font-size: 1.05rem; padding: 10px 12px; max-width: 60vw; }
