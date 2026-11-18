@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { notify } from '../notify.js';
 import { Sheet } from '../lists/ui.jsx';
 import WhoPicker from './WhoPicker.jsx';
+import WeeksPicker from './WeeksPicker.jsx';
 import {
   useReminders, refreshReminders, saveReminder, deleteReminder, markDone, gets,
-  timeText, clockText, daysText, whoText, nudgesText, DAY_LETTERS
+  timeText, clockText, daysText, scheduleText, whoText, nudgesText, DAY_LETTERS
 } from './data.js';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -12,7 +13,7 @@ const NUDGE_CHOICES = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240];
 const minutesText = (m) => (m < 60 ? `${m} minutes` : `${m / 60} ${m === 60 ? 'hour' : 'hours'}`);
 
 const blank = () => ({
-  title: '', note: '', times: ['08:00'], days: [0, 1, 2, 3, 4, 5, 6], who: { all: true }, each: false, nudges: [30, 60], paused: false
+  title: '', note: '', times: ['08:00'], days: [0, 1, 2, 3, 4, 5, 6], everyWeeks: 1, weekOf: null, who: { all: true }, each: false, nudges: [30, 60], paused: false
 });
 
 // Reminders at set times, like pills: today's, with who did them, and every
@@ -74,7 +75,7 @@ export default function RemindersScreen({ account, onAuthLost }) {
           <button key={r.id} className={`card rem-card${r.paused ? ' paused' : ''}`} onClick={() => setEditing(r)}>
             <span className="rem-card-title">{r.title}{r.paused && <span className="rem-paused">Paused</span>}</span>
             {r.note && <span className="muted small">{r.note}</span>}
-            <span className="small">⏰ {daysText(r.days)} · {r.times.map(timeText).join(', ')}</span>
+            <span className="small">⏰ {scheduleText(r.days, r.everyWeeks)} · {r.times.map(timeText).join(', ')}</span>
             <span className="small muted">
               👥 {whoText(r.who, data.people)}{r.each && r.for.length > 1 ? ', each taps their own Done' : ''} · {nudgesText(r.nudges)}
             </span>
@@ -227,6 +228,7 @@ function ReminderEditor({ start, people, me, offline, onClose }) {
           ))}
         </div>
         <span className={r.days.length ? 'muted small' : 'error small'}>{r.days.length ? daysText(r.days) : 'Pick at least one day'}</span>
+        <WeeksPicker everyWeeks={r.everyWeeks} weekOf={r.weekOf} days={r.days} onChange={set} />
       </div>
 
       <div className="stack rem-field">

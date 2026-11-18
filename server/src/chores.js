@@ -2,17 +2,19 @@ import express from 'express';
 import { db } from './db.js';
 import { httpError, requireAdult } from './auth.js';
 import { today } from './config.js';
+import { weekStart, onWeek, cleanEvery, fromDay } from './weeks.js';
 
 // Chores that earn the kids allowance money. Grown-ups make them: a name,
 // how often (some number of times a week, any day: "Dishes" 3 times; or on
-// set days that come round every week: "Trash" on Tuesday and Friday), what
+// set days that come round every week, or every 2 weeks or more: "Trash" on
+// Tuesday and Friday, "Recycling" every other Monday), what
 // each time earns ($1 unless changed) and, if they like, who usually does it.
 // A grown-up checks one off and ticks who did it (the usual kids start
 // ticked); every kid ticked earns the full amount (two kids on the dishes =
 // $1 each), and it counts once towards the week's times. Weeks start on
 // Sunday.
 //
-// A chore can be linked to a reminder ("Trash night"). When the reminder is
+// A chore can be linked to reminders ("Trash night"). When one of them is
 // marked Done (from the app, My Day or the phone's notification), the
 // grown-up's app asks whether to check the chore off too (chore_asks; a kid
 // marking it Done asks any grown-up).
@@ -26,18 +28,9 @@ import { today } from './config.js';
 // money it earned stays earned); undoing a check-off takes its money back.
 
 const MAX_CENTS = 100000; // $1,000
+const MAX_REMINDERS = 10; // linked to one chore
 const ASK_FOR = 3; // days a "check the chore off too?" question waits
 const text = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
-const pad = (n) => String(n).padStart(2, '0');
-const fromDay = (day) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d); };
-const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-// The Sunday the week of `day` (YYYY-MM-DD) starts on.
-export function weekStart(day = today()) {
-  const date = fromDay(day);
-  date.setDate(date.getDate() - date.getDay());
-  return dayKey(date);
-}
 
 const kidRows = () => db.prepare('SELECT * FROM profiles WHERE is_parent = 0 AND is_test = 0 ORDER BY sort, id').all();
 const isKid = (id) => !!db.prepare('SELECT 1 FROM profiles WHERE id = ? AND is_parent = 0 AND is_test = 0').get(Number(id));
@@ -48,7 +41,13 @@ function cents(v) {
   return n;
 }
 
-const parseChore = (c) => c && { ...c, days: c.days ? JSON.parse(c.days) : null, kids: c.kids ? JSON.parse(c.kids) : [] };
+const linkedTo = (choreId) => db.prepare(`
+  SELECT r.id, r.title FROM chore_reminders cr JOIN reminders r ON r.id = cr.reminder_id
+  WHERE cr.chore_id = ? ORDER BY r.title COLLATE NOCASE, r.id`).all(choreId);
+const parseChore = (c) => c && {
+  ...c, days: c.days ? JSON.parse(c.days) : null, kids: c.kids ? JSON.parse(c.kids) : [],
+  reminders: linkedTo(c.id)
+};
 const choreRow = (id) => {
   const c = parseChore(db.prepare('SELECT * FROM chores WHERE id = ? AND deleted_at IS NULL').get(Number(id)));
   if (!c) throw httpError(404, 'That chore is gone');
@@ -66,13 +65,32 @@ function cleanChore(b, was = {}) {
   }
   const times = days ? days.length : 'times' in b ? Math.round(Number(b.times)) : was.times ?? 1;
   if (!(times >= 1 && times <= 21)) throw httpError(400, 'A chore can be done 1 to 21 times a week');
+  // Every so many weeks: only for set days.
+  const every = !days ? { everyWeeks: 1, weekOf: null }
+    : 'everyWeeks' in b ? cleanEvery(b.everyWeeks, b.weekOf)
+      : { everyWeeks: was.every_weeks || 1, weekOf: was.week_of || null };
   const kids = 'kids' in b
     ? [...new Set((Array.isArray(b.kids) ? b.kids : []).map(Number))].filter(isKid)
     : was.kids ?? [];
-  let reminderId = 'reminderId' in b ? (b.reminderId == null || b.reminderId === '' ? null : Number(b.reminderId)) : was.reminder_id ?? null;
-  if (reminderId != null && !db.prepare('SELECT 1 FROM reminders WHERE id = ?').get(reminderId)) throw httpError(400, 'That reminder is gone');
-  return { name, times, days, kids, reminderId, cents: 'cents' in b ? cents(b.cents) : was.cents ?? 100 };
+  // Linked reminders: reminderIds, or (from an app from before) one reminderId.
+  let reminderIds = 'reminderIds' in b ? b.reminderIds
+    : 'reminderId' in b ? (b.reminderId == null || b.reminderId === '' ? [] : [b.reminderId])
+      : (was.reminders || []).map((r) => r.id);
+  reminderIds = [...new Set((Array.isArray(reminderIds) ? reminderIds : []).map(Number))];
+  if (reminderIds.length > MAX_REMINDERS) throw httpError(400, `Up to ${MAX_REMINDERS} reminders`);
+  if (!reminderIds.every((id) => db.prepare('SELECT 1 FROM reminders WHERE id = ?').get(id))) throw httpError(400, 'That reminder is gone');
+  return { name, times, days, ...every, kids, reminderIds, cents: 'cents' in b ? cents(b.cents) : was.cents ?? 100 };
 }
+
+function saveLinks(choreId, reminderIds) {
+  db.prepare('DELETE FROM chore_reminders WHERE chore_id = ?').run(choreId);
+  const add = db.prepare('INSERT INTO chore_reminders (chore_id, reminder_id) VALUES (?, ?)');
+  for (const id of reminderIds) add.run(choreId, id);
+}
+
+// How many times it's done the week of `day`: on set days, once each of
+// them (none in a week it's not on).
+const timesIn = (c, day = today()) => (c.days ? (onWeek(day, c.every_weeks, c.week_of) ? c.days.length : 0) : c.times);
 
 const balance = (profileId) => db.prepare('SELECT COALESCE(SUM(cents), 0) AS n FROM money WHERE profile_id = ?').get(profileId).n;
 const earnedSince = (profileId, day) => db.prepare(
@@ -92,17 +110,21 @@ function doneSince(day) {
   });
 }
 
-// A chore as the screens get it. dueToday: one of its days is today and it
-// hasn't been done as many times as its days so far this week.
+// A chore as the screens get it. times: this week's (none in a week it's
+// not on: offWeek). dueToday: one of its days is today and it hasn't been
+// done as many times as its days so far this week.
 function toChore(c, done, day = today()) {
   const doneThisWeek = done.filter((d) => d.choreId === c.id).length;
   const dow = fromDay(day).getDay();
-  const reminder = c.reminder_id && db.prepare('SELECT title FROM reminders WHERE id = ?').get(c.reminder_id);
+  const offWeek = !!c.days && !onWeek(day, c.every_weeks, c.week_of);
   return {
-    id: c.id, name: c.name, times: c.times, cents: c.cents, days: c.days, kids: c.kids,
-    reminderId: reminder ? c.reminder_id : null, reminderTitle: reminder?.title || null,
+    id: c.id, name: c.name, times: timesIn(c, day), cents: c.cents, days: c.days, kids: c.kids,
+    everyWeeks: c.days ? c.every_weeks || 1 : 1, weekOf: c.days ? c.week_of || null : null, offWeek,
+    reminders: c.reminders,
+    // (For apps from before more than one reminder.)
+    reminderId: c.reminders[0]?.id ?? null, reminderTitle: c.reminders[0]?.title ?? null,
     doneThisWeek,
-    dueToday: !!c.days?.includes(dow) && doneThisWeek < c.days.filter((d) => d <= dow).length
+    dueToday: !offWeek && !!c.days?.includes(dow) && doneThisWeek < c.days.filter((d) => d <= dow).length
   };
 }
 
@@ -129,7 +151,9 @@ function checkOff(c, kids, account, day = today()) {
   if (!kids.length) throw httpError(400, 'Pick who did it');
   if (!kids.every(isKid)) throw httpError(400, "That's not one of the kids");
   db.transaction(() => {
-    if (doneCount(c.id, weekStart(day)) >= c.times) throw httpError(409, `${c.name} is done for this week already`);
+    const times = timesIn(c, day);
+    if (!times) throw httpError(409, `${c.name} isn't on this week`);
+    if (doneCount(c.id, weekStart(day)) >= times) throw httpError(409, `${c.name} is done for this week already`);
     const doneId = db.prepare('INSERT INTO chore_done (chore_id, day, by_account) VALUES (?, ?, ?)').run(c.id, day, account.id).lastInsertRowid;
     const add = db.prepare('INSERT INTO money (profile_id, cents, done_id, by_account) VALUES (?, ?, ?, ?)');
     for (const k of kids) add.run(k, c.cents, doneId, account.id);
@@ -140,10 +164,12 @@ function checkOff(c, kids, account, day = today()) {
 
 // A linked reminder was marked Done (reminders.js calls this): ask whoever
 // did it (any grown-up, if a kid did) whether to check the chore off too.
+// (Two of a chore's reminders at the same time ask once.)
 export function reminderDone(reminderId, occ, account) {
   if (account.is_test) return;
   db.prepare(`INSERT OR IGNORE INTO chore_asks (chore_id, reminder_id, occ, account_id)
-    SELECT id, ?, ?, ? FROM chores WHERE reminder_id = ? AND deleted_at IS NULL`).run(reminderId, occ, account.id, reminderId);
+    SELECT c.id, ?, ?, ? FROM chore_reminders cr JOIN chores c ON c.id = cr.chore_id
+    WHERE cr.reminder_id = ? AND c.deleted_at IS NULL`).run(reminderId, occ, account.id, reminderId);
 }
 // ... and undone: the question goes away.
 export function reminderUndone(reminderId, occ) {
@@ -166,7 +192,7 @@ function asksFor(account) {
     return {
       id: a.id, occ: a.occ, day, reminderTitle: a.reminderTitle || c.name,
       by: a.account_id === account.id ? null : a.byName || null,
-      chore: { ...toChore(c, doneSince(weekStart(day)), day), full: doneCount(c.id, weekStart(day)) >= c.times }
+      chore: { ...toChore(c, doneSince(weekStart(day)), day), full: doneCount(c.id, weekStart(day)) >= timesIn(c, day) }
     };
   });
 }
@@ -198,8 +224,11 @@ choresRouter.use(requireAdult);
 choresRouter.post('/', (req, res) => {
   const c = cleanChore(req.body || {});
   const sort = db.prepare('SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM chores').get().n;
-  db.prepare('INSERT INTO chores (name, times, cents, days, kids, reminder_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(c.name, c.times, c.cents, c.days && JSON.stringify(c.days), JSON.stringify(c.kids), c.reminderId, sort);
+  db.transaction(() => {
+    const id = db.prepare('INSERT INTO chores (name, times, cents, days, every_weeks, week_of, kids, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(c.name, c.times, c.cents, c.days && JSON.stringify(c.days), c.everyWeeks, c.weekOf, JSON.stringify(c.kids), sort).lastInsertRowid;
+    saveLinks(id, c.reminderIds);
+  })();
   res.status(201).json(overview(req.account));
 });
 
@@ -207,9 +236,14 @@ choresRouter.post('/', (req, res) => {
 choresRouter.put('/:id', (req, res) => {
   const was = choreRow(req.params.id);
   const c = cleanChore(req.body || {}, was);
-  db.prepare('UPDATE chores SET name = ?, times = ?, cents = ?, days = ?, kids = ?, reminder_id = ? WHERE id = ?')
-    .run(c.name, c.times, c.cents, c.days && JSON.stringify(c.days), JSON.stringify(c.kids), c.reminderId, was.id);
-  if (c.reminderId !== (was.reminder_id ?? null)) db.prepare('DELETE FROM chore_asks WHERE chore_id = ?').run(was.id);
+  db.transaction(() => {
+    db.prepare('UPDATE chores SET name = ?, times = ?, cents = ?, days = ?, every_weeks = ?, week_of = ?, kids = ? WHERE id = ?')
+      .run(c.name, c.times, c.cents, c.days && JSON.stringify(c.days), c.everyWeeks, c.weekOf, JSON.stringify(c.kids), was.id);
+    saveLinks(was.id, c.reminderIds);
+    // Questions from a reminder no longer linked go.
+    db.prepare(`DELETE FROM chore_asks WHERE chore_id = ? AND (reminder_id IS NULL OR reminder_id NOT IN
+      (SELECT reminder_id FROM chore_reminders WHERE chore_id = ?))`).run(was.id, was.id);
+  })();
   res.json(overview(req.account));
 });
 

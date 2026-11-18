@@ -568,6 +568,24 @@ const MIGRATIONS = [
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (chore_id, occ)
   );
+  `,
+  // Reminders and set-day chores can come round every so many weeks
+  // (every_weeks; week_of is the Sunday of a week they're on). A chore can be
+  // linked to any number of reminders (chore_reminders; the old one-reminder
+  // column is moved over and left empty).
+  `
+  ALTER TABLE reminders ADD COLUMN every_weeks INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE reminders ADD COLUMN week_of TEXT;
+  ALTER TABLE chores ADD COLUMN every_weeks INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE chores ADD COLUMN week_of TEXT;
+  CREATE TABLE chore_reminders (
+    chore_id INTEGER NOT NULL REFERENCES chores(id) ON DELETE CASCADE,
+    reminder_id INTEGER NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
+    PRIMARY KEY (chore_id, reminder_id)
+  );
+  CREATE INDEX chore_reminders_reminder ON chore_reminders(reminder_id);
+  INSERT INTO chore_reminders (chore_id, reminder_id) SELECT id, reminder_id FROM chores WHERE reminder_id IS NOT NULL;
+  UPDATE chores SET reminder_id = NULL;
   `
 ];
 

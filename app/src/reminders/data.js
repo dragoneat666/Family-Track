@@ -66,7 +66,7 @@ const afterChange = (data) => {
 
 export async function saveReminder(r) {
   const body = {
-    title: r.title, note: r.note, times: r.times, days: r.days, who: r.who,
+    title: r.title, note: r.note, times: r.times, days: r.days, everyWeeks: r.everyWeeks || 1, weekOf: r.weekOf || null, who: r.who,
     each: r.each, nudges: r.nudges, paused: r.paused, doneWho: r.doneWho || null
   };
   afterChange(r.id ? await api.put(`/api/reminders/${r.id}`, body) : await api.post('/api/reminders', body));
@@ -127,6 +127,40 @@ export function daysText(days) {
   if (d.join() === '1,2,3,4,5') return 'Weekdays';
   if (d.join() === '0,6') return 'Weekends';
   return d.map((n) => DAY_NAMES[n]).join(', ');
+}
+
+// "every other week", "every 3 weeks"
+export const everyText = (n) => (n === 2 ? 'every other week' : `every ${n} weeks`);
+// Days, and every so many weeks: "Mon, every other week".
+export const scheduleText = (days, every = 1) => (every > 1 ? `${daysText(days)}, ${everyText(every)}` : daysText(days));
+
+// ---------- weeks (they start on Sunday; the same as the server's weeks.js) ----------
+
+const pad2 = (n) => String(n).padStart(2, '0');
+export const dayKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+export const fromDay = (day) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d); };
+export function weekStartOf(date = new Date()) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - d.getDay());
+  return dayKey(d);
+}
+export const addWeeks = (day, n) => { const d = fromDay(day); d.setDate(d.getDate() + 7 * n); return dayKey(d); };
+const utc = (day) => { const [y, m, d] = day.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+const weeksApart = (a, b) => Math.round((utc(b) - utc(a)) / (7 * 86400000));
+// Is the week starting `sunday` one it's on?
+export function onWeek(sunday, every, weekOf) {
+  if (!(every > 1) || !weekOf) return true;
+  const w = weeksApart(weekOf, sunday);
+  return ((w % every) + every) % every === 0;
+}
+// The next day (from today on) it comes round, as a Date; null with no days.
+export function nextDay(days, every = 1, weekOf = null, from = new Date()) {
+  if (!days?.length) return null;
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  for (let i = 0; i < 7 * 13; i++, d.setDate(d.getDate() + 1)) {
+    if (days.includes(d.getDay()) && onWeek(weekStartOf(d), every, weekOf)) return new Date(d);
+  }
+  return null;
 }
 
 const andList = (names) => (names.length <= 2 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);

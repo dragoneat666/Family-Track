@@ -55,7 +55,8 @@ grown-ups' shared lists.
   that store and suggest groceries as you type; anything can be pinned to the
   phone's notifications or given a reminder. They work with no connection
   and catch up later. More under [Lists](#lists).
-- **Reminders**: things like pills, at set times on chosen days, for
+- **Reminders**: things like pills, at set times on chosen days (every week,
+  every other week, or every few weeks), for
   everyone or just some of the family. They pop up on phones and tablets
   with a **Done** button, and remind again a little later if nobody taps it.
   More under [Reminders](#reminders).
@@ -361,7 +362,10 @@ vitamins, feeding the dog. A grown-up makes them; nothing is made for you.
 
 Each one has:
 
-- **At**: one or more times of day, and **On**: every day or chosen days.
+- **At**: one or more times of day, and **On**: every day or chosen days,
+  **every week** or every 2 to 12 weeks ("Recycling" every other Monday).
+  Every 2 weeks or more also says which week it starts (this week, next
+  week, ...), and shows the next day it comes round.
 - **Who gets it**: Everyone, or untick that to pick Adults and/or Kids, or
   untick one of those to pick its people. Groups stay groups, so someone
   added to the family later gets it too.
@@ -626,11 +630,13 @@ speech for its language yet, it asks the phone to download it.
 
 Grown-ups make the chores on the **Chores** button: a name, how often, what it
 earns each time ($1 unless you change it), and (if you like) who usually
-does it and a linked reminder. How often is either **times a week** (any
+does it and linked reminders. How often is either **times a week** (any
 day: "Dishes", 3 times) or **on set days** that come round every week
 ("Trash" on Wednesday and Saturday, once each day; it shows **Today** when
-it's due). Tap a chore's name to change or delete it. A new amount counts
-from then on; deleting a chore keeps the money it earned.
+it's due) or every 2 to 12 weeks, the same as reminders. In a week it's not
+on, it shows **Not this week** and can't be checked off. Tap a chore's name
+to change or delete it. A new amount counts from then on; deleting a chore
+keeps the money it earned.
 
 **✓ Done** checks a chore off: tick every kid who did it (the ones who
 usually do it start ticked). Each one ticked earns the full amount (two kids
@@ -639,13 +645,14 @@ it's been done its times for the week, it waits until next week. Weeks start
 on Sunday. **Done this week** lists the check-offs, with **Undo** (which
 takes the money back).
 
-**Linked reminders.** Link a chore to a reminder (say "Trash night") and
-marking that reminder Done (on the Reminders screen, on My Day, or with the
-Done button on the phone's notification) asks whether to check the chore off
-too, with the usual kids ticked. After a notification's Done, the question
+**Linked reminders.** Link a chore to reminders with **Link a reminder**
+(and **Link another reminder** for more: say "Trash night" and "Bins back
+in"), and marking any of them Done (on the Reminders screen, on My Day, or
+with the Done button on the phone's notification) asks whether to check the
+chore off too, with the usual kids ticked. ✕ unlinks one. After a notification's Done, the question
 is waiting the next time the app is opened. A kid marking it Done asks the
 grown-ups instead. Linking a reminder to a chore with no days yet gives the
-chore the reminder's days.
+chore the reminder's days (and weeks).
 
 Each kid's money is a running total. **Add** puts money in (birthday money),
 **Take out** subtracts what they spend (each with an optional note), and

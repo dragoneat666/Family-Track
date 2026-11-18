@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Sheet } from '../lists/ui.jsx';
-import { DAY_LETTERS, daysText } from '../reminders/data.js';
+import { DAY_LETTERS, daysText, scheduleText } from '../reminders/data.js';
+import WeeksPicker from '../reminders/WeeksPicker.jsx';
 import { money, parseMoney, dollarsText, weekdayOf, dateText, weekText, whenText } from './money.js';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// How often, in a few words: "3 times a week", "Tue and Fri".
-export const howOften = (c) => (c.days ? daysText(c.days) : c.times === 1 ? 'once a week' : `${c.times} times a week`);
+// How often, in a few words: "3 times a week", "Tue, Fri", "Mon, every other week".
+export const howOften = (c) => (c.days ? scheduleText(c.days, c.everyWeeks) : c.times === 1 ? 'once a week' : `${c.times} times a week`);
 
 // Chores for grown-ups: each kid's money (adding some, and taking some out
 // when they spend it), this week's chores to check off (ticking who did it),
@@ -75,19 +76,25 @@ export default function ChoresScreen({ onAuthLost }) {
           {data.chores.map((c) => {
             const full = c.doneThisWeek >= c.times;
             return (
-              <li key={c.id} className={`card chore-row${full ? ' full' : ''}${c.dueToday ? ' due' : ''}`}>
+              <li key={c.id} className={`card chore-row${full ? ' full' : ''}${c.dueToday ? ' due' : ''}${c.offWeek ? ' off' : ''}`}>
                 <button className="chore-row-text" onClick={() => setEditing(c)} title="Change or delete">
                   <b>{c.name}{c.dueToday && <span className="chore-today">Today</span>}</b>
                   <span className="muted small">
                     {money(c.cents)} each · {howOften(c)}
                     {c.kids.length > 0 && ` · ${kidEmojis(c.kids)}`}
-                    {c.reminderTitle && ` · ⏰ ${c.reminderTitle}`}
+                    {c.reminders?.length > 0 && ` · ⏰ ${c.reminders.map((r) => r.title).join(', ')}`}
                   </span>
                 </button>
-                <span className="chore-count">{c.doneThisWeek} / {c.times}</span>
-                {full
-                  ? <span className="chore-full">✓ Done for the week</span>
-                  : <button className="btn primary" onClick={() => setChecking(c)} disabled={!data.kids.length}>✓ Done</button>}
+                {c.offWeek ? (
+                  <span className="chore-full">Not this week</span>
+                ) : (
+                  <>
+                    <span className="chore-count">{c.doneThisWeek} / {c.times}</span>
+                    {full
+                      ? <span className="chore-full">✓ Done for the week</span>
+                      : <button className="btn primary" onClick={() => setChecking(c)} disabled={!data.kids.length}>✓ Done</button>}
+                  </>
+                )}
               </li>
             );
           })}
@@ -172,10 +179,12 @@ function ChoreEditor({ chore, kids, onSave, onDelete, onClose }) {
   const [name, setName] = useState(chore.name || '');
   const [onDays, setOnDays] = useState(!!chore.days);
   const [days, setDays] = useState(chore.days || []);
+  const [every, setEvery] = useState({ everyWeeks: chore.everyWeeks || 1, weekOf: chore.weekOf || null });
   const [times, setTimes] = useState(chore.days ? 1 : chore.times || 1);
   const [amount, setAmount] = useState(chore.cents ? dollarsText(chore.cents) : '1');
   const [usual, setUsual] = useState(chore.kids || []);
-  const [reminderId, setReminderId] = useState(chore.reminderId ? String(chore.reminderId) : '');
+  // Linked reminders, as ids ('' = one being picked).
+  const [links, setLinks] = useState(() => (chore.reminders || []).map((r) => String(r.id)));
   const [reminders, setReminders] = useState(null);
   const cents = parseMoney(amount);
 
@@ -186,21 +195,27 @@ function ChoreEditor({ chore, kids, onSave, onDelete, onClose }) {
   const toggleDay = (d) => setDays((x) => (x.includes(d) ? x.filter((y) => y !== d) : [...x, d].sort()));
   const toggleKid = (id) => setUsual((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
 
-  // Linking a reminder to a chore with no days yet: same days as the reminder.
-  function pickReminder(id) {
-    setReminderId(id);
+  // Linking a reminder to a chore with no days yet: same days (and weeks) as the reminder.
+  function pickReminder(n, id) {
+    setLinks((x) => x.map((y, i) => (i === n ? id : y)));
     const r = reminders?.find((x) => String(x.id) === id);
     if (r && !days.length) {
       setDays([...r.days].sort());
-      if (r.days.length < 7) setOnDays(true);
+      setEvery({ everyWeeks: r.everyWeeks || 1, weekOf: r.weekOf || null });
+      if (r.days.length < 7 || r.everyWeeks > 1) setOnDays(true);
     }
   }
+  const unlink = (n) => setLinks((x) => x.filter((_, i) => i !== n));
+  // What each pick can be: the reminders (or, until they load, the linked ones).
+  const choices = reminders || chore.reminders || [];
+  const linked = links.filter(Boolean);
+  const canLinkMore = !links.includes('') && (reminders === null || reminders.length > linked.length);
 
   const ok = name.trim() && cents && (!onDays || days.length);
   function save() {
     onSave({
-      name, cents, kids: usual, reminderId: reminderId ? Number(reminderId) : null,
-      ...(onDays ? { days } : { days: null, times })
+      name, cents, kids: usual, reminderIds: linked.map(Number),
+      ...(onDays ? { days, ...every } : { days: null, times })
     });
   }
 
@@ -217,7 +232,7 @@ function ChoreEditor({ chore, kids, onSave, onDelete, onClose }) {
         </div>
       </div>
       {onDays ? (
-        <div className="field">Every week on
+        <div className="field">On
           <div className="row wrap">
             {DAY_LETTERS.map((letter, d) => (
               <button type="button" key={d} className={`rem-day${days.includes(d) ? ' on' : ''}`} onClick={() => toggleDay(d)}
@@ -225,6 +240,7 @@ function ChoreEditor({ chore, kids, onSave, onDelete, onClose }) {
             ))}
           </div>
           <span className={days.length ? 'muted small' : 'error small'}>{days.length ? `${daysText(days)} (once each day)` : 'Pick at least one day'}</span>
+          <WeeksPicker everyWeeks={every.everyWeeks} weekOf={every.weekOf} days={days} onChange={setEvery} />
         </div>
       ) : (
         <div className="field">Any day, this many times a week
@@ -252,14 +268,31 @@ function ChoreEditor({ chore, kids, onSave, onDelete, onClose }) {
         </div>
       )}
 
-      <label>Linked reminder (optional)
-        <select value={reminderId} onChange={(e) => pickReminder(e.target.value)} disabled={!reminders}>
-          <option value="">None</option>
-          {(reminders || []).map((r) => <option key={r.id} value={r.id}>⏰ {r.title}</option>)}
-        </select>
-      </label>
-      <p className="muted small">Marking that reminder Done asks whether to check this chore off too
-        {usual.length ? ' for the kids above' : ''}.{reminders && !reminders.length ? ' Make the reminder under Reminders first.' : ''}</p>
+      <div className="field">Linked reminders (optional)
+        {links.map((id, n) => (
+          <div className="row chore-link" key={n}>
+            <select value={id} onChange={(e) => pickReminder(n, e.target.value)} aria-label="Linked reminder">
+              {id === '' && <option value="">Pick a reminder…</option>}
+              {choices.filter((r) => String(r.id) === id || !links.includes(String(r.id))).map((r) => (
+                <option key={r.id} value={r.id}>⏰ {r.title}{r.days ? ` · ${scheduleText(r.days, r.everyWeeks)}` : ''}</option>
+              ))}
+            </select>
+            <button type="button" className="btn small" onClick={() => unlink(n)} aria-label="Unlink this reminder">✕</button>
+          </div>
+        ))}
+        {canLinkMore && (
+          <div className="row">
+            <button type="button" className="btn small" onClick={() => setLinks((x) => [...x, ''])}>
+              ⏰ {linked.length ? 'Link another reminder' : 'Link a reminder'}
+            </button>
+          </div>
+        )}
+        <span className="muted small">
+          {reminders && !reminders.length
+            ? 'Make the reminder under Reminders first.'
+            : `Marking ${linked.length > 1 ? 'one of them' : 'it'} Done asks whether to check this chore off too${usual.length ? ' for the kids above' : ''}.`}
+        </span>
+      </div>
 
       {chore.id && <p className="muted small">A new amount counts from now on. Money already earned stays the same.</p>}
       <div className="row wrap">

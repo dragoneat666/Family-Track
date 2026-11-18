@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
+import { notify } from '../notify.js';
 import { Sheet } from '../lists/ui.jsx';
 import { CheckOff } from './ChoresScreen.jsx';
 import { weekdayOf } from './money.js';
@@ -17,10 +18,13 @@ export default function ChoreAsks() {
   const busy = useRef(false);
   const [hidden, setHidden] = useState([]); // closed without answering: back when the app is opened again
 
-  async function load() {
+  // sendFirst: a notification's Done this phone hasn't told the server about
+  // yet goes first (so its question is there).
+  async function load({ sendFirst = false } = {}) {
     if (busy.current) return;
     busy.current = true;
     try {
+      if (sendFirst && notify.available) await notify.sync();
       const r = await api.get('/api/chores/asks');
       setAsks(r.asks);
       if (r.asks.length && !kids) setKids((await api.get('/api/chores')).kids);
@@ -29,15 +33,16 @@ export default function ChoreAsks() {
   }
 
   useEffect(() => {
-    load();
-    const onVisible = () => { if (document.visibilityState === 'visible') { setHidden([]); load(); } };
+    load({ sendFirst: true });
+    const onVisible = () => { if (document.visibilityState === 'visible') { setHidden([]); load({ sendFirst: true }); } };
+    const onAsk = () => load();
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('ft:chore-asks', load);
+    window.addEventListener('ft:chore-asks', onAsk);
     // (A notification's Done tapped while the app is open.)
     const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60 * 1000);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('ft:chore-asks', load);
+      window.removeEventListener('ft:chore-asks', onAsk);
       clearInterval(t);
     };
   }, []);
@@ -63,7 +68,7 @@ export default function ChoreAsks() {
       {a.by && <p className="muted">{a.by} marked it done.</p>}
       {c.full ? (
         <>
-          <p><b>{c.name}</b> is already checked off {c.times === 1 ? 'for this week' : `all ${c.times} times this week`}.</p>
+          <p><b>{c.name}</b> {c.offWeek ? "isn't on this week" : `is already checked off ${c.times === 1 ? 'for this week' : `all ${c.times} times this week`}`}.</p>
           <div className="row"><button className="btn primary" onClick={() => answer({ skip: true })}>OK</button></div>
         </>
       ) : (

@@ -2,8 +2,10 @@ import express from 'express';
 import { db } from './db.js';
 import { httpError, requireAdult } from './auth.js';
 import { reminderDone, reminderUndone } from './chores.js';
+import { onWeek, cleanEvery, sameWeeks } from './weeks.js';
 
-// Reminders at set times, like pills in the morning and evening. Grown-ups
+// Reminders at set times, like pills in the morning and evening, on set
+// days every week (or every 2 weeks, or more: weeks.js). Grown-ups
 // make them; they go to whoever they're for as a phone notification with a
 // Done button. If nobody taps Done, the phones remind again (the "nudges",
 // say 30 and 60 minutes later) and then stop. Who can tap Done can be
@@ -77,7 +79,7 @@ export function timesBetween(r, from, to) {
   const d = new Date(from);
   d.setHours(0, 0, 0, 0);
   for (; d.getTime() < to; d.setDate(d.getDate() + 1)) {
-    if (!r.days.includes(d.getDay())) continue;
+    if (!r.days.includes(d.getDay()) || !onWeek(dayKey(d), r.every_weeks, r.week_of)) continue;
     for (const t of r.times) {
       const [h, m] = t.split(':').map(Number);
       const at = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m).getTime();
@@ -142,7 +144,7 @@ export function reminderPlan(account) {
 
 const toPerson = (p) => ({ id: p.id, name: p.name, emoji: p.emoji, color: p.color, isParent: !!p.is_parent });
 const toReminder = (r, everyone) => ({
-  id: r.id, title: r.title, note: r.note, times: r.times, days: r.days, who: r.who,
+  id: r.id, title: r.title, note: r.note, times: r.times, days: r.days, everyWeeks: r.every_weeks || 1, weekOf: r.week_of || null, who: r.who,
   each: !!r.each, nudges: r.nudges, paused: !!r.paused, createdBy: r.created_by, doneWho: r.done_who,
   // Who it goes to right now, and who can tap Done.
   for: everyone.filter((p) => gets(r.who, p)).map((p) => p.id),
@@ -195,7 +197,7 @@ function clean(b) {
   const nudges = [...new Set((Array.isArray(b.nudges) ? b.nudges : []).map(Number))]
     .filter((m) => Number.isInteger(m) && m >= 1 && m <= 720).sort((x, y) => x - y).slice(0, 3);
   return {
-    title, note: text(b.note, 200), times, days, who: cleanWho(b.who), each: b.each ? 1 : 0, nudges, paused: b.paused ? 1 : 0,
+    title, note: text(b.note, 200), times, days, ...cleanEvery(b.everyWeeks, b.weekOf), who: cleanWho(b.who), each: b.each ? 1 : 0, nudges, paused: b.paused ? 1 : 0,
     doneWho: b.doneWho ? cleanWho(b.doneWho, 'Pick who can tap Done') : null
   };
 }
@@ -207,9 +209,9 @@ remindersRouter.get('/', requireAdult, (req, res) => res.json(overview()));
 remindersRouter.post('/', requireAdult, (req, res) => {
   const r = clean(req.body);
   const now = Date.now();
-  db.prepare(`INSERT INTO reminders (title, note, times, days, who, each, nudges, paused, done_who, starts_at, created_by, created_at, changed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(r.title, r.note, JSON.stringify(r.times), JSON.stringify(r.days), JSON.stringify(r.who), r.each,
+  db.prepare(`INSERT INTO reminders (title, note, times, days, every_weeks, week_of, who, each, nudges, paused, done_who, starts_at, created_by, created_at, changed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(r.title, r.note, JSON.stringify(r.times), JSON.stringify(r.days), r.everyWeeks, r.weekOf, JSON.stringify(r.who), r.each,
       JSON.stringify(r.nudges), r.paused, r.doneWho && JSON.stringify(r.doneWho), now, req.account.id, now, now);
   res.json(overview());
 });
@@ -218,19 +220,23 @@ remindersRouter.put('/:id', requireAdult, (req, res) => {
   const old = reminderRow(req.params.id);
   if (!old) throw httpError(404, 'That reminder is gone');
   const r = clean(req.body);
+  // (From an app from before every-so-many-weeks: keep how it was.)
+  if (!('everyWeeks' in req.body)) Object.assign(r, { everyWeeks: old.every_weeks || 1, weekOf: old.week_of || null });
   const now = Date.now();
   // New times, days or people (or switched back on): start from now, so
   // nothing that already went by today suddenly turns up late.
-  const fresh = JSON.stringify([old.times, old.days, old.who]) !== JSON.stringify([r.times, r.days, r.who]) || (old.paused && !r.paused);
-  db.prepare(`UPDATE reminders SET title = ?, note = ?, times = ?, days = ?, who = ?, each = ?, nudges = ?, paused = ?,
+  const fresh = JSON.stringify([old.times, old.days, old.who]) !== JSON.stringify([r.times, r.days, r.who])
+    || !sameWeeks(old.every_weeks, old.week_of, r.everyWeeks, r.weekOf) || (old.paused && !r.paused);
+  db.prepare(`UPDATE reminders SET title = ?, note = ?, times = ?, days = ?, every_weeks = ?, week_of = ?, who = ?, each = ?, nudges = ?, paused = ?,
     done_who = ?, starts_at = ?, changed_at = ? WHERE id = ?`)
-    .run(r.title, r.note, JSON.stringify(r.times), JSON.stringify(r.days), JSON.stringify(r.who), r.each,
+    .run(r.title, r.note, JSON.stringify(r.times), JSON.stringify(r.days), r.everyWeeks, r.weekOf, JSON.stringify(r.who), r.each,
       JSON.stringify(r.nudges), r.paused, r.doneWho && JSON.stringify(r.doneWho), fresh ? now : old.starts_at, now, old.id);
   res.json(overview());
 });
 
 remindersRouter.delete('/:id', requireAdult, (req, res) => {
   db.prepare('DELETE FROM reminders WHERE id = ?').run(Number(req.params.id));
+  db.prepare('DELETE FROM chore_asks WHERE reminder_id = ?').run(Number(req.params.id));
   res.json(overview());
 });
 

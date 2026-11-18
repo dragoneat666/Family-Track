@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { money, weekdayOf, dateText, whenText } from './money.js';
-import { daysText } from '../reminders/data.js';
+import { scheduleText } from '../reminders/data.js';
 
 // A kid's Chores page: their money, this week's chores (and how many are
 // left), and what they've earned and spent. Only grown-ups check chores off.
@@ -40,14 +40,14 @@ export default function KidChores({ profile, onExit }) {
               const left = Math.max(0, c.times - c.doneThisWeek);
               const mine = c.kids?.includes(profile.id);
               return (
-                <div key={c.id} className={`kid-chore${left ? '' : ' full'}${c.dueToday ? ' due' : ''}`}>
+                <div key={c.id} className={`kid-chore${left ? '' : ' full'}${c.dueToday ? ' due' : ''}${c.offWeek ? ' off' : ''}`}>
                   <span className="kid-chore-name">{c.name}</span>
                   <span className="kid-chore-pay">{money(c.cents)}</span>
                   <span className="kid-chore-left">
                     {c.dueToday && <span className="chore-today">Today!</span>}
                     {mine && <span className="chore-mine">Yours</span>}
-                    {c.days ? `${daysText(c.days)} · ` : ''}
-                    {left ? `${left} ${left === 1 ? 'time' : 'times'} left` : 'All done ✓'}
+                    {c.days ? `${scheduleText(c.days, c.everyWeeks)} · ` : ''}
+                    {c.offWeek ? 'Not this week' : left ? `${left} ${left === 1 ? 'time' : 'times'} left` : 'All done ✓'}
                   </span>
                 </div>
               );
