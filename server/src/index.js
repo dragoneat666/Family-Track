@@ -24,6 +24,7 @@ import { calendarRouter, calendarPlan } from './calendar.js';
 import { contactsRouter } from './contacts.js';
 import { recipesRouter } from './recipes.js';
 import { mealsRouter } from './meals.js';
+import { choresRouter } from './chores.js';
 import { startBackups } from './backup.js';
 
 const VERSION = process.env.APP_VERSION || 'dev';
@@ -173,6 +174,7 @@ app.use('/api/calendar', calendarRouter);
 app.use('/api/contacts', contactsRouter);
 app.use('/api/recipes', recipesRouter);
 app.use('/api/meals', mealsRouter);
+app.use('/api/chores', choresRouter);
 
 // Everything this phone should be showing or have scheduled as Android
 // notifications for whoever is signed in on it. The app fetches it whenever

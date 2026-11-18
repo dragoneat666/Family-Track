@@ -516,6 +516,40 @@ const MIGRATIONS = [
     SELECT grp FROM characters WHERE kind = 'scene' AND grp IS NOT NULL AND grp <> '' ORDER BY id;
   UPDATE characters SET group_id = (SELECT g.id FROM scene_groups g WHERE g.name = characters.grp)
     WHERE kind = 'scene' AND grp IS NOT NULL AND grp <> '';
+  `,
+  // Chores that earn allowance (see chores.js). A check-off (chore_done) is
+  // one of the chore's times that week; each kid who did it gets a money row
+  // for the chore's amount. Money taken out when a kid spends it is a money
+  // row with no check-off and a minus amount. Amounts are in cents.
+  `
+  CREATE TABLE chores (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    times INTEGER NOT NULL DEFAULT 1,
+    cents INTEGER NOT NULL DEFAULT 100,
+    sort INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at TEXT
+  );
+  CREATE TABLE chore_done (
+    id INTEGER PRIMARY KEY,
+    chore_id INTEGER NOT NULL REFERENCES chores(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    done_at TEXT NOT NULL DEFAULT (datetime('now')),
+    by_account INTEGER
+  );
+  CREATE INDEX chore_done_day ON chore_done(day);
+  CREATE TABLE money (
+    id INTEGER PRIMARY KEY,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    cents INTEGER NOT NULL,
+    done_id INTEGER REFERENCES chore_done(id) ON DELETE CASCADE,
+    note TEXT,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    by_account INTEGER
+  );
+  CREATE INDEX money_profile ON money(profile_id);
+  CREATE INDEX money_done ON money(done_id);
   `
 ];
 

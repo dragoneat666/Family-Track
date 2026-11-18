@@ -3,6 +3,7 @@ import { api } from '../../api.js';
 import OverviewTab from './OverviewTab.jsx';
 import CharactersTab from './CharactersTab.jsx';
 import BackgroundsTab from './BackgroundsTab.jsx';
+import ChoresScreen from '../../chores/ChoresScreen.jsx';
 import BrushingTab from './BrushingTab.jsx';
 import TestTab from './TestTab.jsx';
 import ExercisesTab from './ExercisesTab.jsx';
@@ -32,6 +33,7 @@ const SCREENS = {
   reminders: { emoji: '⏰', title: 'Reminders', under: 'home' },
   contacts: { emoji: '📇', title: 'Contacts', under: 'home' },
   recipes: { emoji: '🍽️', title: 'Meals', under: 'home' },
+  chores: { emoji: '🧹', title: 'Chores', under: 'home' },
   kids: { emoji: '🧒', title: 'Kids Setup', under: 'home' },
   characters: { emoji: '🤖', title: 'Characters', under: 'kids', note: 'What the kids build and dress up' },
   backgrounds: { emoji: '🖼️', title: 'Backgrounds', under: 'kids', note: 'Picture puzzles, in groups' },
@@ -117,6 +119,7 @@ export default function FamilyArea({ account, onSettings, onAuthLost }) {
         {screen === 'reminders' && <RemindersScreen account={account} onAuthLost={onAuthLost} />}
         {screen === 'contacts' && <ContactsScreen canEdit onAuthLost={onAuthLost} />}
         {screen === 'recipes' && <RecipesScreen canEdit onAuthLost={onAuthLost} shared={shared} />}
+        {screen === 'chores' && <ChoresScreen onAuthLost={onAuthLost} />}
         {screen === 'kids' && (
           <div className="stack">
             <OverviewTab onAuthLost={onAuthLost} />
@@ -143,8 +146,10 @@ function Home({ open, openCalendar }) {
   const contacts = useContacts();
   const meals = useMeals();
   const [kids, setKids] = useState(null);
+  const [chores, setChores] = useState(null);
   useEffect(() => {
     api.get('/api/parent/overview').then(setKids).catch(() => { /* no server right now: the button still works */ });
+    api.get('/api/chores').then(setChores).catch(() => {});
     refreshReminders().catch(() => {});
     refreshCalendar().catch(() => {});
     refreshContacts().catch(() => {});
@@ -165,11 +170,19 @@ function Home({ open, openCalendar }) {
         <Tile tone="contacts" emoji="📇" title="Contacts" onClick={() => open('contacts')}
           note={contacts.data?.contacts.length ? `${contacts.data.contacts.length} ${contacts.data.contacts.length === 1 ? 'person' : 'people'}` : ''} />
         <Tile tone="recipes" emoji="🍽️" title="Meals" onClick={() => open('recipes')} note={tonightNote(meals.days)} />
+        <Tile tone="chores" emoji="🧹" title="Chores" onClick={() => open('chores')} note={choresNote(chores)} />
         <Tile tone="kids" emoji="🧒" title="Kids Setup" onClick={() => open('kids')}
           note={kids?.length ? `🪥 ${brushed} of ${kids.length} brushed today` : ''} />
       </div>
     </main>
   );
+}
+
+// "4 left this week"
+function choresNote(d) {
+  if (!d?.chores.length) return '';
+  const left = d.chores.reduce((n, c) => n + Math.max(0, c.times - c.doneThisWeek), 0);
+  return left ? `${left} left this week` : 'All done this week ✓';
 }
 
 function Tile({ tone, emoji, title, note, onClick }) {

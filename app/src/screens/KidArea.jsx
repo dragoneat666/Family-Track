@@ -8,6 +8,7 @@ import { Characters, CharacterDetail } from './Characters.jsx';
 import Exercises from '../exercises/Exercises.jsx';
 import { MyWeek } from '../kids/MyDay.jsx';
 import ContactsScreen from '../contacts/ContactsScreen.jsx';
+import KidChores from '../chores/KidChores.jsx';
 
 // A kid's screens: home (with My Day), brushing, building, exercises, the
 // Characters screen, My Week and Contacts (to look numbers up). Used for real kids and for the test kid in the parent area (top =
@@ -42,6 +43,8 @@ export default function KidArea({ profile, onSettings, top }) {
       return <Exercises profile={profile} onExit={home} />;
     case 'week':
       return <MyWeek profile={profile} onExit={home} />;
+    case 'chores':
+      return <KidChores profile={profile} onExit={home} />;
     case 'contacts':
       return (
         <div className="kid-page" style={{ '--c': profile.color }}>
@@ -73,6 +76,7 @@ export default function KidArea({ profile, onSettings, top }) {
             onBuild={() => go('build')}
             onCharacters={() => go('characters')}
             onExercises={() => go('exercises')}
+            onChores={() => go('chores')}
             onWeek={() => go('week')}
             onContacts={() => go('contacts')}
             onSettings={onSettings}

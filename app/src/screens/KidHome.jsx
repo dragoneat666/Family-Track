@@ -3,10 +3,16 @@ import { api, canUseCamera } from '../api.js';
 import { preloadTracker } from '../brush/tracker.js';
 import UpdateBanner from '../UpdateBanner.jsx';
 import { MyDayCard } from '../kids/MyDay.jsx';
+import { money } from '../chores/money.js';
 
-export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExercises, onWeek, onContacts, onSettings }) {
+export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExercises, onChores, onWeek, onContacts, onSettings }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
+  const [chores, setChores] = useState(null);
+  useEffect(() => {
+    if (onChores) api.get('/api/chores').then(setChores).catch(() => { /* the button still works */ });
+  }, [profile.id]);
+  const myMoney = chores?.kids.find((k) => k.id === profile.id)?.balance;
 
   useEffect(() => {
     if (canUseCamera) preloadTracker();
@@ -74,6 +80,14 @@ export default function KidHome({ profile, onBrush, onBuild, onCharacters, onExe
             <button className="big-action exercise" onClick={onExercises}>
               <span className="big-emoji">🏃</span>
               <span className="big-label">Exercises</span>
+            </button>
+          )}
+
+          {onChores && (
+            <button className="big-action chores" onClick={onChores}>
+              <span className="big-emoji">🧹</span>
+              <span className="big-label">Chores</span>
+              {myMoney != null && <span className="small">My money: {money(myMoney)}</span>}
             </button>
           )}
         </div>

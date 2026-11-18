@@ -63,15 +63,18 @@ grown-ups' shared lists.
   once and remembers. Grown-ups sign in with their own PIN; signing in as a
   kid, or switching away from a kid's account, needs any grown-up's PIN.
   Switching is in Settings.
-- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists**, **Reminders**, **Contacts** and **Meals** are there; **Kids Setup**
-  has each kid's day, then Characters, Brushing (rules and history),
-  Exercises and Test (brushing and building that save nothing). Accounts and
+- **Grown-ups**: a home screen of buttons. **Calendar**, **Lists**, **Reminders**, **Contacts**, **Meals** and **Chores** are there; **Kids Setup**
+  has each kid's day, then Characters, Backgrounds, Brushing (rules and
+  history), Exercises and Test (brushing and building that save nothing). Accounts and
   Devices are under the gear, in Settings. Everything except brushing also
   works in a browser (the web app is served by the server itself).
 - **Dark mode**: the app and the web app follow the phone's or computer's
   light/dark setting.
 
-Later: cooking mode (for recipes), a family tree, chores and allowance.
+- **Chores**: chores that earn the kids allowance money. More under
+  [Chores and allowance](#chores-and-allowance).
+
+Later: a family tree.
 
 ## Privacy
 
@@ -618,6 +621,27 @@ uses the phone's own offline speech recognition, so nothing said leaves the
 phone, and it only listens while cooking mode is open and on screen. The
 first time, it asks for the microphone; if the phone doesn't have offline
 speech for its language yet, it asks the phone to download it.
+
+## Chores and allowance
+
+Grown-ups make the chores on the **Chores** button: a name, how many times a
+week it can be done ("Dishes", 3 times) and what it earns each time ($1
+unless you change it). Tap a chore's name to change or delete it. A new
+amount counts from then on; deleting a chore keeps the money it earned.
+
+**✓ Done** checks a chore off: tick every kid who did it. Each one ticked
+earns the full amount (two kids on the dishes = $1 each), and it counts once
+towards the week's times. Once it's been done its times for the week, it
+waits until next week. Weeks start on Sunday. **Done this week** lists the
+check-offs, with **Undo** (which takes the money back).
+
+Each kid's money is a running total. **Take out** subtracts what they spend
+(with an optional note, like "Lego set"), and **History** shows what each
+chore earned and what was taken out (taking out can be undone there).
+
+Kids have a **Chores** button on their home screen: their money, what they
+earned this week, this week's chores with how many times are left, and their
+history. They only see their own money, and only grown-ups check chores off.
 
 ## Developing
 
