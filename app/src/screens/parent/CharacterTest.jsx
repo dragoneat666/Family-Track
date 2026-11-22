@@ -20,7 +20,7 @@ export default function CharacterTest({ character: c, show }) {
 
   useEffect(() => {
     api.get('/api/parent/characters')
-      .then((all) => setBackgrounds(all.filter((x) => x.kind === 'scene' && x.status === 'ready')))
+      .then((all) => setBackgrounds(all.filter((x) => x.kind === 'scene' && x.status === 'ready' && x.forDancing !== false)))
       .catch(() => setBackgrounds([]));
   }, []);
 

@@ -4,7 +4,7 @@ import { Sheet } from '../lists/ui.jsx';
 import SceneThumb from './SceneThumb.jsx';
 
 // Picking the background a kid's characters stand in front of: the ones
-// they've finished, by group ("Transformers", …), or none. choices: a grown-up
+// they've finished that are for dancing, by group ("Transformers", …), or none. choices: a grown-up
 // testing picks from these instead, and nothing is saved.
 export default function BackgroundPicker({ profile, choices, current, onPicked, onClose }) {
   const [done, setDone] = useState(choices || null);
@@ -14,7 +14,7 @@ export default function BackgroundPicker({ profile, choices, current, onPicked, 
   useEffect(() => {
     if (choices) return;
     api.get(`/api/kids/${profile.id}/characters`)
-      .then((r) => setDone(r.characters.filter((c) => c.kind === 'scene' && c.complete)))
+      .then((r) => setDone(r.characters.filter((c) => c.kind === 'scene' && c.complete && c.forDancing !== false)))
       .catch((e) => setError(e.message));
   }, [profile?.id]);
 

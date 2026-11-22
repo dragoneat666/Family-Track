@@ -227,7 +227,7 @@ function sceneDone(profileId, sceneId) {
 // they finished), or null.
 function kidBackground(row) {
   if (!row.background_id) return null;
-  const c = db.prepare("SELECT * FROM characters WHERE id = ? AND kind = 'scene' AND status = 'ready'").get(row.background_id);
+  const c = db.prepare("SELECT * FROM characters WHERE id = ? AND kind = 'scene' AND status = 'ready' AND for_dancing = 1").get(row.background_id);
   if (!c || !sceneDone(row.id, c.id)) return null;
   return { id: c.id, name: c.name, group: groupName(c.group_id), version: c.version };
 }
@@ -247,7 +247,7 @@ function kidCharacter(profileId, c, isTest = !!profileRow(profileId).is_test) {
   const waitUntil = nextPiece && !isTest ? nextPieceAt(profileId, c, settings) : null;
   return {
     id: c.id, name: c.name, kind: c.kind, status: c.status, version: c.version, group: groupName(c.group_id),
-    hasRigged: !!c.has_rigged,
+    hasRigged: !!c.has_rigged, forDancing: c.kind === 'scene' ? !!c.for_dancing : undefined,
     pieces: pieces.map((p) => ({
       id: p.id, name: p.name, nodeName: p.nodeName, unlocked: !!p.unlockedOn, placed: !!p.placedAt,
       // Dress up only: revealed (rub away the clouds), not placed.
@@ -308,6 +308,7 @@ app.put('/api/kids/:id/background', (req, res) => {
   if (id) {
     const c = characterRow(id);
     if (c.kind !== 'scene') throw httpError(400, 'That one isn’t a background');
+    if (!c.for_dancing) throw httpError(400, `${c.name} isn’t one to dance in front of`);
     if (!sceneDone(row.id, c.id)) throw httpError(400, `Finish the ${c.name} puzzle first`);
   }
   db.prepare('UPDATE profiles SET background_id = ? WHERE id = ?').run(id, row.id);
@@ -782,7 +783,7 @@ function characterDetail(c) {
   const ex = c.exercise ? safeJson(c.exercise) : null;
   return {
     id: c.id, name: c.name, kind: c.kind, status: c.status, error: c.error, hasRigged: !!c.has_rigged, version: c.version,
-    group: groupName(c.group_id), groupId: c.group_id ?? null,
+    group: groupName(c.group_id), groupId: c.group_id ?? null, forDancing: c.kind === 'scene' ? !!c.for_dancing : undefined,
     pieces: db.prepare('SELECT id, name, node_name AS nodeName, reveal FROM pieces WHERE character_id = ? ORDER BY sort, id').all(c.id)
       .map((p) => ({ ...p, reveal: !!p.reveal })),
     dances: db.prepare('SELECT id, name, status, error FROM dances WHERE character_id = ? ORDER BY id').all(c.id),
@@ -917,8 +918,9 @@ parent.post('/characters', characterUpload, (req, res) => {
     if (!files.picture?.[0]) { cleanup(req); throw httpError(400, 'Add the picture (JPG or PNG)'); }
     let groupId;
     try { groupId = groupFrom(req.body) ?? null; } catch (e) { cleanup(req); throw e; }
-    const id = db.prepare("INSERT INTO characters (name, kind, status, group_id) VALUES (?, 'scene', 'processing', ?)")
-      .run(String(req.body.name).trim().slice(0, 60), groupId).lastInsertRowid;
+    const forDancing = req.body.forDancing === '0' || req.body.forDancing === 'false' ? 0 : 1;
+    const id = db.prepare("INSERT INTO characters (name, kind, status, group_id, for_dancing) VALUES (?, 'scene', 'processing', ?, ?)")
+      .run(String(req.body.name).trim().slice(0, 60), groupId, forDancing).lastInsertRowid;
     cleanupFiles([...pieces, ...(files.rigged || []), ...(files.dances || []), ...(files.exercise || [])]);
     enqueue([() => savePicture(id, files.picture[0])]);
     return res.status(202).json(characterDetail(characterRow(id)));
@@ -949,6 +951,7 @@ parent.put('/characters/:id', (req, res) => {
     const groupId = c.kind === 'scene' ? groupFrom(b) : undefined;
     db.prepare('UPDATE characters SET name = ?, kind = ?, group_id = ? WHERE id = ?').run(
       String(b.name ?? c.name).trim().slice(0, 60) || c.name, kind, groupId === undefined ? c.group_id ?? null : groupId, c.id);
+    if (c.kind === 'scene' && 'forDancing' in b) db.prepare('UPDATE characters SET for_dancing = ? WHERE id = ?').run(b.forDancing ? 1 : 0, c.id);
     // pieces: full list in the new unlock order, with names and which are
     // body parts (dress up reveals those instead of placing them)
     (b.pieces || []).forEach((p, i) => {

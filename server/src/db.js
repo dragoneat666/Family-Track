@@ -586,6 +586,12 @@ const MIGRATIONS = [
   CREATE INDEX chore_reminders_reminder ON chore_reminders(reminder_id);
   INSERT INTO chore_reminders (chore_id, reminder_id) SELECT id, reminder_id FROM chores WHERE reminder_id IS NOT NULL;
   UPDATE chores SET reminder_id = NULL;
+  `,
+  // A background picture can be one characters dance in front of (the
+  // stage-like ones), or only a puzzle and phone background (pictures with
+  // characters already in them).
+  `
+  ALTER TABLE characters ADD COLUMN for_dancing INTEGER NOT NULL DEFAULT 1;
   `
 ];
 

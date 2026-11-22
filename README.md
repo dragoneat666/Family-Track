@@ -222,8 +222,11 @@ character in Settings → Accounts.
 A background is a picture the kids put together as a jigsaw. They live in
 Kids Setup → **Backgrounds**, in groups: make a group (like "Transformers";
 kids see backgrounds by group), then **Add a background** in it with a name
-and the picture (JPG or PNG, wide works best; the server makes it 1920 px and
-turns it the right way up). A background's page moves it to another group (or
+and the picture (JPG or PNG; the server makes it 1920 px on its longest side
+and turns it the right way up). **Use for dancing** (on unless you untick it)
+says whether characters can stand in front of it: untick it for pictures that
+already have characters in them, so they're only a puzzle and a phone
+background. A background's page moves it to another group (or
 none), gives it a new picture or deletes it. Renaming a group renames it for
 the kids too; deleting a group keeps its backgrounds, in no group. The app cuts it into 9 jigsaw pieces (3 × 3). The shapes come from the
 background's id, so they're the same every time and on every tablet.
@@ -235,10 +238,17 @@ to where it goes and it clicks in. Easy shows the picture faintly in the
 frame. Medium shows only the shapes. Hard hands pieces out turned, and a tap
 turns one.
 
-A finished background can go behind any finished character: **Put it behind
-my characters** on its page, or the 🖼️ button when looking at a finished
-character (pick from the finished ones by group, or none). A new picture for a
-background keeps everyone's pieces.
+A finished background can go behind any finished character (if it's for
+dancing): **Put it behind my characters** on its page, or the 🖼️ button when
+looking at a finished character (pick from the finished ones by group, or
+none). A new picture for a background keeps everyone's pieces.
+
+In the Android app, any finished background can also be the phone's or
+tablet's own background: **📱 Make it my background** on its page, then
+**Home screen**, **Lock screen** or **Both**. Kids do this themselves; there's
+no permission to give. Tall pictures fill a phone best (wide ones are cropped
+from the middle). Some phones put their own lock screen over it (Samsung's
+dynamic lock screen, say) until that's turned off.
 
 ### Each character's page
 

@@ -3,6 +3,8 @@ import { api } from '../api.js';
 import { characterPicture } from '../three/thumbnail.js';
 import SceneThumb from '../scenes/SceneThumb.jsx';
 import { groupScenes } from '../scenes/BackgroundPicker.jsx';
+import { wallpaper } from '../scenes/wallpaper.js';
+import { Sheet } from '../lists/ui.jsx';
 
 // The kids' Characters screen: every character, how far along they are on
 // each, and picking which one brushing earns pieces for.
@@ -98,6 +100,7 @@ export function CharacterDetail({ profile, characterId, onExit, onBuild }) {
   const [background, setBackground] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [wallpaperOpen, setWallpaperOpen] = useState(false);
 
   async function load() {
     try {
@@ -151,12 +154,13 @@ export function CharacterDetail({ profile, characterId, onExit, onBuild }) {
             {c.complete && scene ? (
               <>
                 <p className="char-status">⭐ You finished {c.name}!</p>
-                {background?.id === c.id
+                {c.forDancing !== false && (background?.id === c.id
                   ? <>
                     <p className="char-active">✓ Your characters stand in front of it</p>
                     <button className="btn big" onClick={() => useBackground(false)} disabled={saving}>No background</button>
                   </>
-                  : <button className="btn primary big" onClick={() => useBackground(true)} disabled={saving}>🖼️ Put it behind my characters</button>}
+                  : <button className="btn primary big" onClick={() => useBackground(true)} disabled={saving}>🖼️ Put it behind my characters</button>)}
+                {wallpaper.available && <button className={`btn big${c.forDancing === false ? ' primary' : ''}`} onClick={() => setWallpaperOpen(true)}>📱 Make it my background</button>}
                 <button className="btn big" onClick={onBuild}>👀 Look at it</button>
               </>
             ) : c.complete ? (
@@ -182,6 +186,47 @@ export function CharacterDetail({ profile, characterId, onExit, onBuild }) {
           </div>
         </div>
       )}
+      {wallpaperOpen && <WallpaperSheet scene={c} onClose={() => setWallpaperOpen(false)} />}
     </div>
+  );
+}
+
+// "Make it my background": the home screen, the lock screen, or both, on
+// this phone or tablet.
+function WallpaperSheet({ scene, onClose }) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState('');
+  const [error, setError] = useState('');
+
+  async function set(where, words) {
+    setBusy(true);
+    setError('');
+    try {
+      if (!(await wallpaper.allowed())) throw new Error("This tablet doesn't let apps change its background.");
+      await wallpaper.set(scene, where);
+      setDone(words);
+    } catch (e) {
+      setError(e.message || 'That didn’t work. Try again?');
+    }
+    setBusy(false);
+  }
+
+  return (
+    <Sheet title={`📱 ${scene.name} as my background`} onClose={onClose} closeLabel={done ? 'Done' : 'Cancel'}>
+      {done ? (
+        <p className="char-status">✓ {scene.name} is on your {done} now!</p>
+      ) : (
+        <>
+          <p>Where should it go?</p>
+          <div className="stack">
+            <button className="btn primary big" disabled={busy} onClick={() => set('home', 'home screen')}>🏠 Home screen</button>
+            <button className="btn primary big" disabled={busy} onClick={() => set('lock', 'lock screen')}>🔒 Lock screen</button>
+            <button className="btn primary big" disabled={busy} onClick={() => set('both', 'home screen and lock screen')}>✨ Both</button>
+          </div>
+          {busy && <div className="spinner" />}
+        </>
+      )}
+      {error && <p className="error">{error}</p>}
+    </Sheet>
   );
 }

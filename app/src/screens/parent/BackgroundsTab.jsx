@@ -84,7 +84,8 @@ export default function BackgroundsTab({ onAuthLost }) {
       {error && <p className="error">{error}</p>}
       {uploading}
       <p className="muted">Picture puzzles the kids put together, one piece per brush. When a kid finishes one, they can
-        stand any of their characters in front of it. Kids pick backgrounds by group.</p>
+        make it their phone or tablet background, and stand any of their characters in front of it (unless it's not for
+        dancing). Kids pick backgrounds by group.</p>
       {newGroup === null ? (
         <div className="row"><button className="btn primary" onClick={() => setNewGroup('')}>＋ New group</button></div>
       ) : (
@@ -156,7 +157,7 @@ function GroupCard({ group, items, call, reload, adding, onAdd, onOpen, children
           <button key={c.id} className="bg-tile" onClick={() => onOpen(c.id)}>
             {c.status === 'ready' ? <SceneThumb character={{ ...c, pieces: [] }} showAll />
               : <span className="bg-tile-msg">{c.status === 'processing' ? 'Getting ready…' : 'Problem: open it to see'}</span>}
-            <span>{c.name}</span>
+            <span>{c.name}{c.forDancing === false && <span className="muted small"> · not for dancing</span>}</span>
           </button>
         ))}
         {!adding && (
@@ -173,6 +174,7 @@ function GroupCard({ group, items, call, reload, adding, onAdd, onOpen, children
 
 function AddBackground({ groupId, upload, setError, onDone, onCancel }) {
   const [name, setName] = useState('');
+  const [forDancing, setForDancing] = useState(true);
   const picture = useRef(null);
 
   async function submit(e) {
@@ -184,6 +186,7 @@ function AddBackground({ groupId, upload, setError, onDone, onCancel }) {
     form.append('name', name.trim());
     form.append('kind', 'scene');
     form.append('groupId', groupId == null ? '' : String(groupId));
+    form.append('forDancing', forDancing ? '1' : '0');
     form.append('picture', pic, pic.name);
     const r = await upload('POST', '/api/parent/characters', form);
     if (r) onDone(r);
@@ -193,10 +196,12 @@ function AddBackground({ groupId, upload, setError, onDone, onCancel }) {
     <form className="stack bg-add" onSubmit={submit}>
       <h4>Add a background</h4>
       <input autoFocus placeholder="Name (e.g. City at night)" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
-      <label>Picture (JPG or PNG; wide pictures work best)
+      <label>Picture (JPG or PNG)
         <input type="file" accept="image/*" ref={picture} />
       </label>
-      <p className="muted small">It’s cut into 9 jigsaw pieces, one for each brush.</p>
+      <DancingSwitch value={forDancing} onChange={setForDancing} />
+      <p className="muted small">It’s cut into 9 jigsaw pieces, one for each brush. Once a kid finishes it, they can make it their
+        phone or tablet background (tall pictures fill a phone best).</p>
       <div className="row">
         <button className="btn primary">Upload</button>
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
@@ -209,11 +214,12 @@ function AddBackground({ groupId, upload, setError, onDone, onCancel }) {
 function BackgroundPage({ background: c, groups, call, upload, setError, reload, onBack }) {
   const [name, setName] = useState(c.name);
   const [groupId, setGroupId] = useState(c.groupId ?? '');
+  const [forDancing, setForDancing] = useState(c.forDancing !== false);
   const picture = useRef(null);
-  const changed = name !== c.name || String(groupId) !== String(c.groupId ?? '');
+  const changed = name !== c.name || String(groupId) !== String(c.groupId ?? '') || forDancing !== (c.forDancing !== false);
 
   async function save() {
-    const body = { name, groupId: groupId === '' ? null : Number(groupId) };
+    const body = { name, groupId: groupId === '' ? null : Number(groupId), forDancing };
     if (await call(() => api.put(`/api/parent/characters/${c.id}`, body))) reload();
   }
 
@@ -256,6 +262,7 @@ function BackgroundPage({ background: c, groups, call, upload, setError, reload,
             {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         </label>
+        <DancingSwitch value={forDancing} onChange={setForDancing} />
         <div className="row"><button className="btn primary" onClick={save} disabled={!changed}>Save</button></div>
         <h4>Picture</h4>
         <p className="muted small">Cut into 9 jigsaw pieces, one per brush. A new picture keeps everyone's progress (same pieces, new picture).</p>
@@ -266,5 +273,21 @@ function BackgroundPage({ background: c, groups, call, upload, setError, reload,
         <div className="row"><button className="btn danger" onClick={remove}>Delete {c.name}</button></div>
       </div>
     </div>
+  );
+}
+
+// Can characters dance in front of it? Off for pictures with characters
+// already in them: those are just a puzzle and a phone background.
+function DancingSwitch({ value, onChange }) {
+  return (
+    <>
+      <label className="inline check">
+        <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
+        Use for dancing
+      </label>
+      <span className="muted small">
+        {value ? 'Kids can put their characters in front of it once they finish it.' : 'Only a puzzle and a phone background, never behind a dance.'}
+      </span>
+    </>
   );
 }

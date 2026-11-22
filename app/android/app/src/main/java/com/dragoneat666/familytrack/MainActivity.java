@@ -7,6 +7,7 @@ import com.dragoneat666.familytrack.cook.CookPlugin;
 import com.dragoneat666.familytrack.notify.NotifyPlugin;
 import com.dragoneat666.familytrack.read.ReadPlugin;
 import com.dragoneat666.familytrack.share.SharePlugin;
+import com.dragoneat666.familytrack.wallpaper.WallpaperPlugin;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -22,6 +23,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SharePlugin.class);
         // Recipes from screenshots, or from the screen as a video plays (see read/).
         registerPlugin(ReadPlugin.class);
+        // A finished picture puzzle as the phone's background (see wallpaper/).
+        registerPlugin(WallpaperPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
