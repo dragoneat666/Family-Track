@@ -592,6 +592,20 @@ const MIGRATIONS = [
   // characters already in them).
   `
   ALTER TABLE characters ADD COLUMN for_dancing INTEGER NOT NULL DEFAULT 1;
+  `,
+  // Songs to brush to. Groups (scene_groups) are now for characters too, not
+  // only backgrounds: a brush plays a random song from the group of the
+  // character the kid is working on (or, with none there, a song in no
+  // group). The file is songs/<id>.<ext> next to the 3D files.
+  `
+  CREATE TABLE songs (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    group_id INTEGER REFERENCES scene_groups(id) ON DELETE SET NULL,
+    ext TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   `
 ];
 

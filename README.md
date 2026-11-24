@@ -250,6 +250,19 @@ no permission to give. Tall pictures fill a phone best (wide ones are cropped
 from the middle). Some phones put their own lock screen over it (Samsung's
 dynamic lock screen, say) until that's turned off.
 
+### Songs to brush to
+
+Kids Setup → **Songs** has music for brushing, in the same groups as
+backgrounds. Characters go in a group too (**Group** on a character's
+Details). Each brush plays a random song from the group of the character the
+kid is working on; when that group has no songs (or the character is in no
+group), a random song from **No group**; with none there either, brushing is
+quiet as before. **＋ Add songs** takes several files at once (MP3, M4A, AAC,
+OGG, WAV or FLAC, up to 40 MB each); the name comes from the file name and
+can be changed. The song loops if it's shorter than the brush and stops while
+brushing is paused. The files are kept with the 3D files (not in the nightly
+database backup), and each tablet keeps a copy after the first play.
+
 ### Each character's page
 
 Characters shows every character as a tile; tapping one opens its page:

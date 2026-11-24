@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, getSettings, setSettings } from './db.js';
-import { PORT, DATA_DIR, TMP_DIR, APK_DIR, today } from './config.js';
+import { PORT, DATA_DIR, TMP_DIR, APK_DIR, ASSETS_DIR, today } from './config.js';
 import {
   hasAdults, hashPin, validPin, checkAccountPin, checkAnyAdultPin, createDevice,
   optionalDevice, requireAccount, requireAdult, httpError
@@ -325,6 +325,16 @@ app.put('/api/kids/:id/character', (req, res) => {
 });
 
 app.get('/api/kids/:id/state', (req, res) => res.json(kidState(Number(req.params.id))));
+
+// A song to brush to, picked at random: from the group of the character the
+// kid is working on, or (none there) from the songs in no group. null: none.
+app.get('/api/kids/:id/brush-song', (req, res) => {
+  const p = profileRow(Number(req.params.id));
+  const groupId = activeCharacter(p.id)?.group_id ?? null;
+  const pick = (where, ...args) => db.prepare(`SELECT * FROM songs WHERE ${where} ORDER BY random() LIMIT 1`).get(...args);
+  const s = (groupId && pick('group_id = ?', groupId)) || pick('group_id IS NULL');
+  res.json({ song: s ? songOut(s) : null });
+});
 
 // A kid's own brushing settings from tracking checks (see app brush/tuning.js).
 const TUNING_SPOTS = ['standing', 'sitting'];
@@ -838,7 +848,10 @@ function groupFrom(b) {
   return undefined;
 }
 const groupRows = () => db.prepare(`
-  SELECT g.id, g.name, (SELECT COUNT(*) FROM characters c WHERE c.group_id = g.id) AS backgrounds
+  SELECT g.id, g.name,
+    (SELECT COUNT(*) FROM characters c WHERE c.group_id = g.id AND c.kind = 'scene') AS backgrounds,
+    (SELECT COUNT(*) FROM characters c WHERE c.group_id = g.id AND c.kind <> 'scene') AS characters,
+    (SELECT COUNT(*) FROM songs s WHERE s.group_id = g.id) AS songs
   FROM scene_groups g ORDER BY g.name COLLATE NOCASE`).all();
 
 parent.get('/scene-groups', (req, res) => res.json(groupRows()));
@@ -861,15 +874,86 @@ parent.put('/scene-groups/:id', (req, res) => {
   res.json(groupRows().find((g) => g.id === id));
 });
 
-// Deleting a group keeps its backgrounds (and the kids' progress on them):
-// they just have no group.
+// Deleting a group keeps its backgrounds, characters and songs (and the
+// kids' progress): they just have no group.
 parent.delete('/scene-groups/:id', (req, res) => {
   const id = Number(req.params.id);
   db.transaction(() => {
     db.prepare('UPDATE characters SET group_id = NULL WHERE group_id = ?').run(id);
+    db.prepare('UPDATE songs SET group_id = NULL WHERE group_id = ?').run(id);
     db.prepare('DELETE FROM scene_groups WHERE id = ?').run(id);
   })();
   res.json({ ok: true });
+});
+
+// ---------- songs to brush to ----------
+// Each in a group (or none). A brush plays a random one from the group of
+// the character the kid is working on; with none there, one in no group;
+// with none of those either, no song.
+
+const SONG_TYPES = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav', flac: 'audio/flac' };
+const songsDir = path.join(ASSETS_DIR, 'songs');
+const songFile = (s) => path.join(songsDir, `${s.id}.${s.ext}`);
+const songUpload = multer({
+  dest: TMP_DIR,
+  limits: { fileSize: 40 * 1024 * 1024, files: 30 },
+  fileFilter: (req, file, cb) => cb(null, path.extname(file.originalname).slice(1).toLowerCase() in SONG_TYPES)
+});
+const songOut = (s) => ({ id: s.id, name: s.name, groupId: s.group_id ?? null, group: groupName(s.group_id), version: s.version });
+const songRow = (id) => {
+  const s = db.prepare('SELECT * FROM songs WHERE id = ?').get(id);
+  if (!s) throw httpError(404, 'No such song');
+  return s;
+};
+// A file name as a song name: "03 - Roll Out (Remix).mp3" -> "Roll Out (Remix)".
+const songName = (file) => path.basename(file, path.extname(file)).replace(/[_]+/g, ' ')
+  .replace(/^\d{1,3}[\s.-]+(?=\S)/, '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Song';
+
+parent.get('/songs', (req, res) => {
+  res.json(db.prepare('SELECT * FROM songs ORDER BY name COLLATE NOCASE, id').all().map(songOut));
+});
+
+// One or more song files ('songs'), all into one group (groupId, '' for none).
+parent.post('/songs', songUpload.array('songs', 30), (req, res) => {
+  const files = req.files || [];
+  try {
+    if (!files.length) throw httpError(400, 'Pick a song file (MP3, M4A, OGG, WAV or FLAC)');
+    const groupId = groupFrom(req.body) ?? null;
+    const added = db.transaction(() => files.map((f) => {
+      const ext = path.extname(f.originalname).slice(1).toLowerCase();
+      const id = Number(db.prepare('INSERT INTO songs (name, group_id, ext, version) VALUES (?, ?, ?, ?)')
+        .run(songName(f.originalname), groupId, ext, newVersion()).lastInsertRowid);
+      moveFile(f.path, songFile({ id, ext }));
+      return songOut(songRow(id));
+    }))();
+    res.status(201).json(added);
+  } finally {
+    cleanupFiles(files);
+  }
+});
+
+parent.put('/songs/:id', (req, res) => {
+  const s = songRow(Number(req.params.id));
+  const name = String(req.body?.name ?? s.name).replace(/\s+/g, ' ').trim().slice(0, 80) || s.name;
+  const groupId = groupFrom(req.body ?? {});
+  db.prepare('UPDATE songs SET name = ?, group_id = ? WHERE id = ?').run(name, groupId === undefined ? s.group_id : groupId, s.id);
+  res.json(songOut(songRow(s.id)));
+});
+
+parent.delete('/songs/:id', (req, res) => {
+  const s = songRow(Number(req.params.id));
+  db.prepare('DELETE FROM songs WHERE id = ?').run(s.id);
+  fs.rmSync(songFile(s), { force: true });
+  res.json({ ok: true });
+});
+
+// The song file, for anyone signed in (kids play them while brushing).
+app.get('/api/songs/:id/file', (req, res) => {
+  const s = songRow(Number(req.params.id));
+  const file = songFile(s);
+  if (!fs.existsSync(file)) throw httpError(404, 'File not found');
+  res.set('Cache-Control', 'private, max-age=31536000, immutable');
+  res.type(SONG_TYPES[s.ext] || 'application/octet-stream').sendFile(file);
 });
 
 // A background: the picture, made a sensible size for the tablets (turned
@@ -948,7 +1032,7 @@ parent.put('/characters/:id', (req, res) => {
   db.transaction(() => {
     // A partner-only character stays one (it has no pieces to build).
     const kind = c.kind !== 'partner' && c.kind !== 'scene' && (b.kind === 'dress' || b.kind === 'build') ? b.kind : c.kind;
-    const groupId = c.kind === 'scene' ? groupFrom(b) : undefined;
+    const groupId = groupFrom(b);
     db.prepare('UPDATE characters SET name = ?, kind = ?, group_id = ? WHERE id = ?').run(
       String(b.name ?? c.name).trim().slice(0, 60) || c.name, kind, groupId === undefined ? c.group_id ?? null : groupId, c.id);
     if (c.kind === 'scene' && 'forDancing' in b) db.prepare('UPDATE characters SET for_dancing = ? WHERE id = ?').run(b.forDancing ? 1 : 0, c.id);

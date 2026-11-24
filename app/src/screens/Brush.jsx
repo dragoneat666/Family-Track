@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, canUseCamera, clock } from '../api.js';
 import { openCamera, startTracker } from '../brush/tracker.js';
 import { drawOverlay } from '../brush/overlay.js';
+import { brushSong } from '../brush/song.js';
 
 // The brushing session. The countdown only moves while the camera sees the
 // kid actually brushing; otherwise it simply waits. In test mode (from the
@@ -32,6 +33,8 @@ export default function Brush({ profile, testMode = false, onExit }) {
   const [status, setStatus] = useState(null);
   const [cheer, setCheer] = useState(0);
   const [result, setResult] = useState(null);
+  const songRef = useRef(null); // { audio, name } once loaded
+  const [songName, setSongName] = useState('');
 
   const mainMs = (settings?.mainSeconds ?? 120) * 1000;
   const frontMs = (settings?.frontSeconds ?? 15) * 1000;
@@ -46,6 +49,13 @@ export default function Brush({ profile, testMode = false, onExit }) {
     let stopTracker = null;
     let wakeLock = null;
     let timer = null;
+
+    // The song loads alongside the camera, and plays while brushing counts.
+    brushSong(profile).then((song) => {
+      if (cancelled || !song) return;
+      songRef.current = song;
+      setSongName(song.name);
+    });
 
     (async () => {
       try {
@@ -91,6 +101,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
     })();
 
     stopRef.current = () => {
+      songRef.current?.stop();
       clearInterval(timer);
       stopTracker?.();
       stream?.getTracks().forEach((t) => t.stop());
@@ -121,6 +132,9 @@ export default function Brush({ profile, testMode = false, onExit }) {
     }
     if (reason) t.paused += dt;
     else t.brushed += dt;
+    // The song plays while brushing counts, and waits while it's paused.
+    if (reason) songRef.current?.pause();
+    else songRef.current?.play();
     setPause(reason);
     setBrushedMs(t.brushed);
     if (t.brushed >= (s.mainSeconds + s.frontSeconds) * 1000) finish(true);
@@ -210,6 +224,7 @@ export default function Brush({ profile, testMode = false, onExit }) {
           {zone.label}{zone.side && <> on <b>this side</b> {zone.side === 'left' ? '👈' : '👉'}</>}
         </div>
         <div className={`brush-message ${pause ? 'warn' : ''}`}>{message}</div>
+        {songName && <div className="brush-song">🎵 {songName}</div>}
         {showInfo && status && (
           <div className="tracking-info">
             face {status.faceVisible ? '✓' : '✗'} · mouth {status.mouth.toFixed(1)} · face moving {status.moving.toFixed(2)}

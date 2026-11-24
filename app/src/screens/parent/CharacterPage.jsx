@@ -52,9 +52,14 @@ function Details({ character, call, reload, onDeleted }) {
   const partnerOnly = character.kind === 'partner';
   const [name, setName] = useState(character.name);
   const [kind, setKind] = useState(character.kind);
+  const [groupId, setGroupId] = useState(character.groupId ?? '');
+  const [groups, setGroups] = useState(null);
+  useEffect(() => { call(() => api.get('/api/parent/scene-groups')).then((g) => g && setGroups(g)); }, []);
+  const changed = name !== character.name || kind !== character.kind || String(groupId) !== String(character.groupId ?? '');
 
   async function save() {
-    if (await call(() => api.put(`/api/parent/characters/${character.id}`, { name, kind }))) reload();
+    const body = { name, kind, groupId: groupId === '' ? null : Number(groupId) };
+    if (await call(() => api.put(`/api/parent/characters/${character.id}`, body))) reload();
   }
 
   async function setForAll(forAll) {
@@ -82,7 +87,17 @@ function Details({ character, call, reload, onDeleted }) {
           </select>
         </label>
       )}
-      <div className="row"><button className="btn primary" onClick={save} disabled={name === character.name && kind === character.kind}>Save</button></div>
+      {!partnerOnly && (
+        <label>Group
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} disabled={!groups}>
+            <option value="">No group</option>
+            {(groups || []).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+          <span className="muted small">Brushing while working on {character.name} plays a song from its group (see Kids Setup → Songs).
+            Groups are made on Backgrounds or Songs.</span>
+        </label>
+      )}
+      <div className="row"><button className="btn primary" onClick={save} disabled={!changed}>Save</button></div>
       <h4>Exercise partner</h4>
       {partnerOnly
         ? <p className="muted small">Every kid can pick {character.name} as their partner (there's nothing to build).</p>

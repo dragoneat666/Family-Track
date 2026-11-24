@@ -85,7 +85,7 @@ export default function BackgroundsTab({ onAuthLost }) {
       {uploading}
       <p className="muted">Picture puzzles the kids put together, one piece per brush. When a kid finishes one, they can
         make it their phone or tablet background, and stand any of their characters in front of it (unless it's not for
-        dancing). Kids pick backgrounds by group.</p>
+        dancing). Kids pick backgrounds by group. Characters and songs go in the same groups.</p>
       {newGroup === null ? (
         <div className="row"><button className="btn primary" onClick={() => setNewGroup('')}>＋ New group</button></div>
       ) : (
@@ -129,8 +129,9 @@ function GroupCard({ group, items, call, reload, adding, onAdd, onOpen, children
   }
 
   async function remove() {
-    const what = items.length
-      ? `Delete the ${group.name} group? Its ${items.length === 1 ? 'background stays' : `${items.length} backgrounds stay`} (in no group), and so does the kids' progress.`
+    const more = group.characters + group.songs;
+    const what = items.length || more
+      ? `Delete the ${group.name} group? Its backgrounds, characters and songs stay (in no group), and so does the kids' progress.`
       : `Delete the ${group.name} group?`;
     if (!window.confirm(what)) return;
     if (await call(() => api.del(`/api/parent/scene-groups/${group.id}`))) reload();

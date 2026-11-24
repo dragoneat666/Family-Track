@@ -3,6 +3,7 @@ import { api } from '../../api.js';
 import OverviewTab from './OverviewTab.jsx';
 import CharactersTab from './CharactersTab.jsx';
 import BackgroundsTab from './BackgroundsTab.jsx';
+import SongsTab from './SongsTab.jsx';
 import ChoresScreen from '../../chores/ChoresScreen.jsx';
 import ChoreAsks from '../../chores/ChoreAsks.jsx';
 import BrushingTab from './BrushingTab.jsx';
@@ -38,11 +39,12 @@ const SCREENS = {
   kids: { emoji: '🧒', title: 'Kids Setup', under: 'home' },
   characters: { emoji: '🤖', title: 'Characters', under: 'kids', note: 'What the kids build and dress up' },
   backgrounds: { emoji: '🖼️', title: 'Backgrounds', under: 'kids', note: 'Picture puzzles, in groups' },
+  songs: { emoji: '🎵', title: 'Songs', under: 'kids', note: 'Music to brush to, by group' },
   brushing: { emoji: '🪥', title: 'Brushing', under: 'kids', note: 'Rules, history and each kid’s setting' },
   exercises: { emoji: '🏃', title: 'Exercises', under: 'kids', note: 'Do an exercise with a kid' },
   test: { emoji: '🧪', title: 'Test', under: 'kids', note: 'Try brushing and building without saving' }
 };
-const UNDER_KIDS = ['characters', 'backgrounds', 'brushing', 'exercises', 'test'];
+const UNDER_KIDS = ['characters', 'backgrounds', 'songs', 'brushing', 'exercises', 'test'];
 
 // Home for grown-up accounts, in the app and the web app alike. Over any
 // screen: the "check the chore off too?" question after a linked reminder.
@@ -139,6 +141,7 @@ function FamilyScreens({ account, onSettings, onAuthLost }) {
         )}
         {screen === 'characters' && <CharactersTab onAuthLost={onAuthLost} show={setFullScreen} />}
         {screen === 'backgrounds' && <BackgroundsTab onAuthLost={onAuthLost} />}
+        {screen === 'songs' && <SongsTab onAuthLost={onAuthLost} />}
         {screen === 'brushing' && <BrushingTab onAuthLost={onAuthLost} />}
         {screen === 'exercises' && <ExercisesTab onAuthLost={onAuthLost} show={setFullScreen} />}
         {screen === 'test' && <TestTab onAuthLost={onAuthLost} show={setFullScreen} />}
